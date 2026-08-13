@@ -71,13 +71,12 @@ docs/               # 명세·PRD·계획서 (위 참조)
 ```
 main     ─ 시연/배포 브랜치. 직접 커밋 금지. develop에서 PR로만 머지. main 머지 = 가비아 재배포
 develop  ─ 통합 브랜치. 모든 기능 브랜치의 머지 대상. 항상 실행 가능한 상태 유지
-feature/f{대분류번호}-{요약}  ─ 기능 개발.  예: feature/f2-stock-crud, feature/f4-summarize
-fix/{요약}      ─ 버그 수정.       예: fix/session-cookie-expire
-docs/{요약}     ─ 문서만 변경.     예: docs/spec-c16
-chore/{요약}    ─ 설정·빌드·의존성. 예: chore/docker-compose
+feature/#{이슈번호}  ─ 기능 개발. GitHub 이슈를 먼저 만들고 그 번호로 딴다. 예: feature/#12
+fix/#{이슈번호}      ─ 버그 수정 (버그 이슈 번호)
+chore/{요약}         ─ 설정·빌드·문서 등 이슈 없는 잡무. 예: chore/docker-compose
 ```
 
-- 브랜치는 항상 **develop에서** 딴다. 기능 하나(F-번호 하나 내외)당 브랜치 하나 — 브랜치 수명은 1~2일을 넘기지 않는다.
+- 브랜치는 항상 **develop에서** 딴다. 이슈 하나당 브랜치 하나 — 브랜치 수명은 1~2일을 넘기지 않는다. PR 본문에 `closes #이슈번호`로 이슈를 연결한다(머지 시 자동 닫힘).
 - Claude 세션에서 작업을 시작할 때 현재 브랜치를 확인하고, develop이나 main 위에서 직접 기능 코드를 작성하지 않는다.
 
 ### 커밋
