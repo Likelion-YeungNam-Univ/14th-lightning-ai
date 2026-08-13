@@ -13,8 +13,7 @@ apscheduler>=3.10
 httpx>=0.27
 finance-datareader>=0.9.90
 
-# AI
-anthropic>=0.40
+# AI (생성 + 임베딩 — OpenAI 단일)
 openai>=1.50
 
 # 개발

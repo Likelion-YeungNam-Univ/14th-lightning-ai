@@ -1,4 +1,4 @@
-"""F-2.1 — KRX 종목 마스터 동기화 (일 1회).
+"""F-3.1 — 국내 종목 마스터 동기화 (일 1회).
 
 실측(2026-08-13) 기준 FinanceDataReader 필드:
 - StockListing('KRX'): Code, Name, Market, Marcap (시가총액 직접 제공 — pykrx 불필요)
@@ -11,8 +11,8 @@ import FinanceDataReader as fdr
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from app.models import StockMaster
-from app.services.industry import ETC_CODE, classify_industry, seed_industry_ministry
+from app.models import MARKET_DOMESTIC, StockMaster
+from app.services.industry import ETC_CODE, classify_industry, seed_domestic_industries
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +28,16 @@ def fetch_krx_listing() -> pd.DataFrame:
 
 
 def sync_stock_master(db: Session) -> dict:
-    """종목 마스터 upsert. 업종 매핑표(industry_ministry)도 함께 갱신한다(멱등)."""
-    seed_industry_ministry(db)
+    """국내 종목 마스터 upsert. 업종 매핑표(industry_agency)도 함께 갱신한다(멱등)."""
+    seed_domestic_industries(db)
     df = fetch_krx_listing()
 
     stats = {"total": len(df), "created": 0, "updated": 0, "etc": 0}
     unmapped: dict[str, int] = {}
-    existing = {s.stock_code: s for s in db.query(StockMaster).all()}
+    existing = {
+        s.stock_code: s
+        for s in db.query(StockMaster).filter(StockMaster.market == MARKET_DOMESTIC).all()
+    }
 
     for row in df.itertuples(index=False):
         industry = classify_industry(row.Industry)
@@ -51,8 +54,10 @@ def sync_stock_master(db: Session) -> dict:
             db.add(
                 StockMaster(
                     stock_code=row.Code,
+                    market=MARKET_DOMESTIC,
                     name=row.Name,
-                    market=row.Market,
+                    aliases=[],
+                    exchange=row.Market,  # KOSPI / KOSDAQ
                     industry_code=industry,
                     market_cap=market_cap,
                 )
@@ -60,7 +65,7 @@ def sync_stock_master(db: Session) -> dict:
             stats["created"] += 1
         else:
             obj.name = row.Name
-            obj.market = row.Market
+            obj.exchange = row.Market
             obj.industry_code = industry
             obj.market_cap = market_cap
             stats["updated"] += 1

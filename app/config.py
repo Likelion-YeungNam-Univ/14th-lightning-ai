@@ -4,16 +4,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://assit:assit@localhost:5432/assit"
 
-    # 외부 데이터 API (F-7.4)
+    # 외부 데이터 API (F-8.4)
     dart_api_key: str = ""
     ecos_api_key: str = ""
     fred_api_key: str = ""
     youtube_api_key: str = ""
     briefing_api_key: str = ""
+    sec_user_agent: str = ""  # SEC EDGAR 필수 헤더 (F-4.6): "assit-hackathon <이메일>"
 
-    # AI
-    anthropic_api_key: str = ""
+    # AI — OpenAI 하나로 생성 + 임베딩 (확정사항 1절)
     openai_api_key: str = ""
+    openai_model: str = "gpt-5-mini"  # 생성 모델 — 교체 시 env만 변경
 
     # 앱
     mock_login_id: str = ""

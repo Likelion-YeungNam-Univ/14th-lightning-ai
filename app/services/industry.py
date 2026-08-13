@@ -1,7 +1,7 @@
-"""업종 12분류 (F-2.1.2, C2).
+"""국내 업종 12분류 (F-3.1.2, 확정사항 2절 B2).
 
 KRX 업종/산업 문자열을 자체 12분류 코드로 변환한다.
-규칙과 매핑표는 코드가 아니라 data/*.json 데이터로 관리한다 (F-3.2.1).
+규칙과 매핑표는 코드가 아니라 data/*.json 데이터로 관리한다 (F-4.2.1).
 """
 
 import json
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app.models import IndustryMinistry
+from app.models import MARKET_DOMESTIC, IndustryAgency
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
@@ -41,24 +41,25 @@ def classify_industry(*texts: str | None) -> str:
     return ETC_CODE
 
 
-def seed_industry_ministry(db: Session) -> int:
-    """industry_ministry 테이블을 데이터 파일로 갱신(멱등). 반환: 적재 건수."""
+def seed_domestic_industries(db: Session) -> int:
+    """industry_agency 테이블의 국내(domestic) 행을 데이터 파일로 갱신(멱등). 반환: 적재 건수."""
     rows = load_industry_ministries()
     for row in rows:
-        existing = db.get(IndustryMinistry, row["industry_code"])
+        existing = db.get(IndustryAgency, (MARKET_DOMESTIC, row["industry_code"]))
         if existing is None:
             db.add(
-                IndustryMinistry(
-                    industry_code=row["industry_code"],
+                IndustryAgency(
+                    market=MARKET_DOMESTIC,
+                    industry_key=row["industry_code"],
                     name=row["name"],
-                    ministries=row["ministries"],
+                    agencies=row["ministries"],
                     keywords=row["keywords"],
                     profile=row["profile"],
                 )
             )
         else:
             existing.name = row["name"]
-            existing.ministries = row["ministries"]
+            existing.agencies = row["ministries"]
             existing.keywords = row["keywords"]
             existing.profile = row["profile"]
     db.commit()
