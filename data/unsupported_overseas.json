@@ -1,0 +1,25 @@
+{
+  "_comment": "F-3.3.1 — 화이트리스트 밖 주요 해외 종목 별칭. 검색 결과가 비었을 때 이 목록에 맞으면 unsupported_overseas 사유를 반환한다(오타로 오해 방지). 화이트리스트에 적재된 종목은 정상 검색되므로 여기 있어도 무해하다. 소문자로 관리.",
+  "entries": [
+    {"name": "테슬라", "aliases": ["테슬라", "tesla", "tsla"]},
+    {"name": "애플", "aliases": ["애플", "apple", "aapl"]},
+    {"name": "엔비디아", "aliases": ["엔비디아", "nvidia", "nvda"]},
+    {"name": "마이크로소프트", "aliases": ["마이크로소프트", "microsoft", "msft"]},
+    {"name": "알파벳(구글)", "aliases": ["구글", "알파벳", "google", "alphabet", "googl", "goog"]},
+    {"name": "아마존", "aliases": ["아마존", "amazon", "amzn"]},
+    {"name": "메타", "aliases": ["메타", "페이스북", "meta", "facebook"]},
+    {"name": "넷플릭스", "aliases": ["넷플릭스", "netflix", "nflx"]},
+    {"name": "TSMC", "aliases": ["tsmc", "티에스엠씨", "대만반도체"]},
+    {"name": "버크셔 해서웨이", "aliases": ["버크셔", "berkshire", "brk"]},
+    {"name": "브로드컴", "aliases": ["브로드컴", "broadcom", "avgo"]},
+    {"name": "AMD", "aliases": ["amd", "에이엠디"]},
+    {"name": "인텔", "aliases": ["인텔", "intel", "intc"]},
+    {"name": "일라이 릴리", "aliases": ["일라이릴리", "릴리", "lilly", "lly"]},
+    {"name": "코카콜라", "aliases": ["코카콜라", "coca-cola", "coke", "ko"]},
+    {"name": "스타벅스", "aliases": ["스타벅스", "starbucks", "sbux"]},
+    {"name": "팔란티어", "aliases": ["팔란티어", "palantir", "pltr"]},
+    {"name": "유나이티드헬스", "aliases": ["유나이티드헬스", "unitedhealth", "unh"]},
+    {"name": "JP모건", "aliases": ["jp모건", "제이피모건", "jpmorgan", "jpm"]},
+    {"name": "비자", "aliases": ["비자", "visa"]}
+  ]
+}

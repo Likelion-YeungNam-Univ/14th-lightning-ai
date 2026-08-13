@@ -34,6 +34,18 @@ def get_current_session(request: Request, db: DbDep) -> UserSession:
 CurrentSession = Annotated[UserSession, Depends(get_current_session)]
 
 
+def get_optional_session(request: Request, db: DbDep) -> UserSession | None:
+    """무인증 엔드포인트용 — 세션이 있으면 활용(already_added 등), 없어도 동작."""
+    session_id = request.cookies.get(COOKIE_NAME)
+    session = db.get(UserSession, session_id) if session_id else None
+    if session is not None and session.expires_at < utcnow():
+        return None
+    return session
+
+
+OptionalSession = Annotated[UserSession | None, Depends(get_optional_session)]
+
+
 def require_auth(session: CurrentSession) -> UserSession:
     """F-1.3 — 종목 추가·카드 저장 두 지점에서만 쓰는 인증 게이트."""
     if not session.authenticated:
