@@ -1,0 +1,26 @@
+# 환경 변수 · 시크릿 (절대 커밋 금지)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# DB · 데이터
+pgdata/
+*.dump
+*.sqlite3
+
+# IDE · OS
+.idea/
+.vscode/
+.DS_Store
+
+# Claude 로컬 설정 (개인별 권한 설정 — 팀 공유 안 함)
+.claude/settings.local.json
