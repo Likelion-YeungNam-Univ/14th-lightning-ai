@@ -15,7 +15,7 @@
 
 - Python 3.12 / FastAPI + Uvicorn(**워커 1개 고정**) / Pydantic v2
 - PostgreSQL 16 + **pgvector** / SQLAlchemy 2.0 **동기** 세션
-- APScheduler(프로세스 내 배치) / httpx(수집기) / FinanceDataReader + pykrx(종목 마스터)
+- APScheduler(프로세스 내 배치) / httpx(수집기) / FinanceDataReader(종목 마스터 — 실측 결과 Marcap 직접 제공, pykrx 불필요)
 - LLM: Anthropic Claude API, 모델 ID `claude-opus-5` (structured output 사용)
 - 임베딩: OpenAI `text-embedding-3-small` (RAG, F-4.8)
 - 배포: Docker 단일 이미지. 프론트는 Vercel에서 `/api/*` rewrite 프록시로 접속(F-7.7)
