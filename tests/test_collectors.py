@@ -408,3 +408,94 @@ def test_on_demand_collect_after_add(client, login_env):
             .one()
         )
         assert db.get(SourceItemStock, (item.id, "555550")) is not None
+
+
+# ── DART 정형 API (이슈 #18) ────────────────────────────────────────────
+
+
+@respx.mock
+def test_dart_detail_enrichment(client, monkeypatch):
+    """정형 유형은 상세 API를 접수번호로 조인해 content·detail_json을 채운다."""
+    from app.services.industry import displayed_form_codes, seed_form_types
+
+    monkeypatch.setattr("app.collectors.base.time.sleep", lambda _s: None)
+    respx.get(host="opendart.fss.or.kr", path="/api/list.json").mock(
+        return_value=Response(
+            200,
+            json={
+                "status": "000",
+                "list": [
+                    {
+                        "rcept_no": "det-1",
+                        "report_nm": "주요사항보고서(자기주식취득결정)",
+                        "rcept_dt": "20260812",
+                    },
+                    {
+                        "rcept_no": "det-2",
+                        "report_nm": "자기주식취득결과보고서",  # 정형 API 없음 — 제목 기반 유지
+                        "rcept_dt": "20260811",
+                    },
+                ],
+            },
+        )
+    )
+    respx.get(host="opendart.fss.or.kr", path="/api/tsstkAqDecsn.json").mock(
+        return_value=Response(
+            200,
+            json={
+                "status": "000",
+                "list": [
+                    {
+                        "rcept_no": "det-1",
+                        "aqpln_stk_ostk": "36,671,401",
+                        "aqpln_prc_ostk": "7,174,299,854,900",
+                        "aqexpd_bgd": "2026년 06월 23일",
+                        "aqexpd_edd": "2026년 07월 20일",
+                        "aq_pp": "주주가치 제고",
+                        "aq_mth": "장내매수",
+                        "aqpln_stk_estk": "-",  # 값 없음 — 표시 제외
+                    }
+                ],
+            },
+        )
+    )
+    with SessionLocal() as db:
+        seed_form_types(db)
+        stock = db.query(StockMaster).filter_by(stock_code="222220").one()
+        stock.corp_code = "C-DET"
+        db.commit()
+        from app.collectors.dart import sync_disclosures
+
+        stats = sync_disclosures(db, [stock])
+        assert stats["failed"] == 0
+
+        enriched = db.query(SourceItem).filter_by(source_key="det-1").one()
+        assert enriched.doc_type == "자기주식취득결정"
+        assert "취득 예정 금액: 7,174,299,854,900원" in enriched.content
+        assert "장내매수" in enriched.content
+        assert "기타주식" not in enriched.content  # "-" 값 제외
+        slots = enriched.detail_json["slots"]
+        assert {"label": "취득 예정 금액", "value": "7,174,299,854,900원"} in slots
+
+        plain = db.query(SourceItem).filter_by(source_key="det-2").one()
+        assert plain.doc_type == "자기주식취득결과보고서"  # 긴 이름 우선 분류
+        assert plain.content is None  # 정형 API 없는 유형은 그대로
+
+        # 노출 정책: 두 유형 모두 display=true, 임원 보고서는 false
+        codes = displayed_form_codes("domestic")
+        assert {"자기주식취득결정", "자기주식취득결과보고서", "반기보고서"} <= codes
+        assert "임원ㆍ주요주주특정증권등소유상황보고서" not in codes
+
+
+def test_detail_fields_feed_summary_input(client):
+    """정형 필드가 요약 입력에 들어가 숫자 가드레일(F-5.1.3)과 정합한다."""
+    from tests.test_ai import GOOD, FakeLLM
+
+    with SessionLocal() as db:
+        item = db.query(SourceItem).filter_by(source_key="det-1").one()  # 위 테스트에서 적재
+        fake = FakeLLM([{**GOOD, "summary_short": "약 7,174,299,854,900원 규모예요."}])
+        from app.ai.summarize import generate_summaries
+
+        stats = generate_summaries(db, fake, items=[item])
+        assert stats["generated"] == 1 and len(fake.calls) == 1  # 재생성 없음
+        assert "공시 상세" in fake.calls[0]  # 정형 필드가 입력에 포함

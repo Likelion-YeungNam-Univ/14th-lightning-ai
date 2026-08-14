@@ -249,6 +249,6 @@ def test_knowledge_chunk_composition():
     for c in chunks:
         by_source[c["source"]] = by_source.get(c["source"], 0) + 1
     assert by_source["bok_700"] >= 650  # 700선 파싱 성과 하한
-    assert by_source["dart_doctype"] == 12
+    assert by_source["dart_doctype"] == 18
     assert by_source["sec_formtype"] == 4
     assert all(c["term"] and len(c["content"]) >= 20 for c in chunks)
