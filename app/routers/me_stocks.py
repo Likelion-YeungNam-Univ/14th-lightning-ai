@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 
+from app.collectors.runner import collect_on_stock_added
 from app.deps import AuthSession, CurrentSession, DbDep
 from app.schemas.stocks import (
     AddedStock,
@@ -35,12 +36,17 @@ def my_stocks(market: str, session: CurrentSession, db: DbDep) -> MyStocksRespon
 
 
 @router.post("/me/stocks", response_model=StockAddResponse)
-def add_stocks(body: StockAddRequest, session: AuthSession, db: DbDep) -> StockAddResponse:
+def add_stocks(
+    body: StockAddRequest, session: AuthSession, db: DbDep, background: BackgroundTasks
+) -> StockAddResponse:
     """F-3.5 — 벌크 등록(멱등, 구분별 상한 30). 로그인 요구 지점(F-1.3).
 
     응답에 market을 포함한다(F-3.5.1) — 다른 구분에 들어간 종목의 안내 근거.
+    새 종목은 응답 후 온디맨드 수집(F-4.10) — 요청 경로에서 외부 API를 부르지 않는다.
     """
     added, skipped = stock_service.add_stocks(db, session, body.stock_codes)
+    for stock in added:
+        background.add_task(collect_on_stock_added, stock.stock_code)
     return StockAddResponse(
         added=[AddedStock(stock_code=s.stock_code, name=s.name, market=s.market) for s in added],
         already_registered=skipped,

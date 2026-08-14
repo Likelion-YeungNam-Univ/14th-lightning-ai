@@ -124,6 +124,8 @@ class SourceItem(Base):
     doc_type: Mapped[str | None] = mapped_column(String(64))  # 공시 유형 / 폼 코드
     published_at: Mapped[datetime | None] = mapped_column(DateTime)
     origin_url: Mapped[str | None] = mapped_column(Text)
+    # 규제 본문·금리 결정 요지 — 요약(F-5.1) 입력 전용, 화면에 직접 노출하지 않는다 (확정사항 6절)
+    content: Mapped[str | None] = mapped_column(Text)
     thumbnail_url: Mapped[str | None] = mapped_column(Text)  # 유튜브 전용
     channel_name: Mapped[str | None] = mapped_column(String(120))  # 유튜브 전용
     view_count: Mapped[int | None] = mapped_column(BigInteger)  # 유튜브 전용
@@ -212,6 +214,20 @@ class SavedCard(Base):
     stock_code: Mapped[str] = mapped_column(String(12))  # 저장 당시 종목 (배지·필터용)
     snapshot_json: Mapped[dict] = mapped_column(JSON)
     saved_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CollectStatus(Base):
+    """F-4.9·F-6.4 — 수집 단위별 최종 상태. '자료 없음'과 '불러오지 못함'을 구분하는 근거."""
+
+    __tablename__ = "collect_status"
+
+    tab: Mapped[str] = mapped_column(String(16), primary_key=True)
+    scope_key: Mapped[str] = mapped_column(String(32), primary_key=True)  # 종목코드/업종/global
+    status: Mapped[str] = mapped_column(String(8))  # ok | failed
+    detail: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
 
 
 class QuotaUsage(Base):

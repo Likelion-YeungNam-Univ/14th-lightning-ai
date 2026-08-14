@@ -1,0 +1,21 @@
+{
+  "_comment": "금리 결정문 수동 시드 (확정사항 2절 B3 — ECOS·FRED는 요지 텍스트를 제공하지 않는다). content는 AI 요약(F-5.1) 입력 전용. 새 결정이 나오면 항목을 추가하고 scripts/seed_rate_decisions.py를 재실행한다(멱등).",
+  "bok": [
+    {
+      "source_key": "bok-20260716",
+      "title": "한국은행 금융통화위원회 통화정책방향 (2026.7.16)",
+      "published_at": "2026-07-16",
+      "origin_url": "https://www.bok.or.kr/portal/singl/newsData/listCont.do?menuNo=200761",
+      "content": "금융통화위원회는 기준금리를 0.25%p 인상한 2.75%로 운용하기로 결정했다. 물가 상승 압력이 예상보다 오래 이어지고 있는 점을 고려한 결정이다. 위원회는 향후 물가와 가계부채 흐름, 주요국 통화정책 변화를 지켜보며 추가 조정 여부를 판단하겠다고 밝혔다."
+    }
+  ],
+  "fed": [
+    {
+      "source_key": "fomc-20260729",
+      "title": "FOMC Statement (July 2026)",
+      "published_at": "2026-07-29",
+      "origin_url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+      "content": "연방공개시장위원회(FOMC)는 연방기금금리 목표 범위를 3.50~3.75%로 유지했다. 위원회는 고용과 물가 지표를 지켜보며 향후 회의에서 정책 경로를 조정할 수 있다고 밝혔다."
+    }
+  ]
+}
