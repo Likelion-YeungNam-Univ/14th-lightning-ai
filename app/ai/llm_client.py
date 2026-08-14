@@ -14,6 +14,8 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 API_URL = "https://api.openai.com/v1/chat/completions"
+EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
+EMBEDDING_MODEL = "text-embedding-3-small"  # 확정사항 1절 — RAG 임베딩
 
 
 class LLMError(Exception):
@@ -54,6 +56,22 @@ class OpenAIClient:
             return json.loads(resp.json()["choices"][0]["message"]["content"])
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             raise LLMError(f"OpenAI 응답 파싱 실패: {e}") from e
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        """text-embedding-3-small 임베딩 — RAG 적재·검색 공용 (확정사항 5절)."""
+        try:
+            resp = httpx.post(
+                EMBEDDINGS_URL,
+                json={"model": EMBEDDING_MODEL, "input": texts},
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                timeout=self.timeout,
+            )
+        except httpx.HTTPError as e:
+            raise LLMError(f"임베딩 요청 실패: {e}") from e
+        if resp.status_code >= 400:
+            raise LLMError(f"임베딩 HTTP {resp.status_code}: {resp.text[:200]}")
+        data = sorted(resp.json()["data"], key=lambda d: d["index"])
+        return [d["embedding"] for d in data]
 
 
 def get_llm_client() -> OpenAIClient:
