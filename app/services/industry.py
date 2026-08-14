@@ -118,3 +118,23 @@ def seed_form_types(db: Session) -> int:
             count += 1
     db.commit()
     return count
+
+
+@lru_cache(maxsize=1)
+def _form_type_data() -> dict:
+    with open(DATA_DIR / "disclosure_form_types.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def displayed_form_codes(market_key: str) -> frozenset[str]:
+    """이슈 #18 — 카드로 노출하는 공시 유형(display=true). 수집은 전체, 노출만 거른다."""
+    return frozenset(
+        row["form_code"] for row in _form_type_data()[market_key] if row.get("display")
+    )
+
+
+@lru_cache(maxsize=1)
+def load_dart_detail_map() -> dict:
+    """이슈 #18 — 정형 API 매핑표: form_code → {endpoint, fields}."""
+    with open(DATA_DIR / "dart_detail_map.json", encoding="utf-8") as f:
+        return json.load(f)["types"]

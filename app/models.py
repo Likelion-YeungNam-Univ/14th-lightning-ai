@@ -124,8 +124,10 @@ class SourceItem(Base):
     doc_type: Mapped[str | None] = mapped_column(String(64))  # 공시 유형 / 폼 코드
     published_at: Mapped[datetime | None] = mapped_column(DateTime)
     origin_url: Mapped[str | None] = mapped_column(Text)
-    # 규제 본문·금리 결정 요지 — 요약(F-5.1) 입력 전용, 화면에 직접 노출하지 않는다 (확정사항 6절)
+    # 규제 본문·금리 결정 요지·공시 정형 필드 텍스트 — 요약(F-5.1) 입력 전용 (확정사항 6절)
     content: Mapped[str | None] = mapped_column(Text)
+    # 공시 정형 API 슬롯(이슈 #18) — {"slots": [{"label", "value"}]}. 카드·스냅샷에 노출
+    detail_json: Mapped[dict | None] = mapped_column(JSON)
     thumbnail_url: Mapped[str | None] = mapped_column(Text)  # 유튜브 전용
     channel_name: Mapped[str | None] = mapped_column(String(120))  # 유튜브 전용
     view_count: Mapped[int | None] = mapped_column(BigInteger)  # 유튜브 전용

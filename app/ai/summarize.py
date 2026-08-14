@@ -58,6 +58,8 @@ def _input_text(item: SourceItem, unit_name: str | None, form_desc: str | None =
             parts.append(f"공시유형: {item.doc_type}")
         if form_desc:  # 미국 폼 해설 — 제목만으로는 의미가 없다 (F-4.6.1)
             parts.append(f"유형 해설: {form_desc}")
+        if item.content:  # 정형 API 필드(이슈 #18) — 금액·기간을 사실 기반으로 요약
+            parts.append(f"공시 상세: {item.content[:1500]}")
         return " / ".join(p for p in parts if p)
     if item.tab == "regulation":
         return f"제목: {item.title}\n본문: {(item.content or '')[:4000]}"

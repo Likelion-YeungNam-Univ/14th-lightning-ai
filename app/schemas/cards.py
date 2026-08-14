@@ -3,6 +3,13 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+class CardDetail(BaseModel):
+    """이슈 #18 — 정형 공시 핵심 필드 배지 (예: 취득 예정 금액 / 7,174,299,854,900원)."""
+
+    label: str
+    value: str
+
+
 class Card(BaseModel):
     """F-6.1.1 — 공통 카드 스키마. 다섯 탭 공통이며 없는 요소는 null로 채운다.
 
@@ -24,6 +31,7 @@ class Card(BaseModel):
     channel_name: str | None = None  # 유튜브만
     view_count: int | None = None  # 유튜브만
     indicator_value: str | None = None  # 금리 탭만
+    details: list[CardDetail] | None = None  # 정형 공시만 (이슈 #18)
 
 
 class CardListResponse(BaseModel):
