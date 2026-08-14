@@ -98,20 +98,23 @@ def seed_overseas_industries(db: Session) -> int:
 
 
 def seed_form_types(db: Session) -> int:
-    """미국 공시 폼 해설 시드(멱등) — F-4.6.1. 요약 입력 + RAG 소스."""
+    """공시 유형 해설 시드(멱등) — 국내 report_nm 분류표 + 미국 폼 (F-4.6.1, 확정사항 5절)."""
     with open(DATA_DIR / "disclosure_form_types.json", encoding="utf-8") as f:
-        rows = json.load(f)["overseas"]
-    for row in rows:
-        existing = db.get(DisclosureFormType, (MARKET_OVERSEAS, row["form_code"]))
-        if existing is None:
-            db.add(
-                DisclosureFormType(
-                    market=MARKET_OVERSEAS,
-                    form_code=row["form_code"],
-                    description=row["description"],
+        data = json.load(f)
+    count = 0
+    for key, market in (("domestic", MARKET_DOMESTIC), ("overseas", MARKET_OVERSEAS)):
+        for row in data[key]:
+            existing = db.get(DisclosureFormType, (market, row["form_code"]))
+            if existing is None:
+                db.add(
+                    DisclosureFormType(
+                        market=market,
+                        form_code=row["form_code"],
+                        description=row["description"],
+                    )
                 )
-            )
-        else:
-            existing.description = row["description"]
+            else:
+                existing.description = row["description"]
+            count += 1
     db.commit()
-    return len(rows)
+    return count

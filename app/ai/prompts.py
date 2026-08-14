@@ -38,6 +38,27 @@ LINK_SENTENCE_USER_TMPL = (
     "새로운 수치 생성 금지. '~하는 경향이 있어요'처럼 일반적 관계만 서술하라."
 )
 
+TERM_EXPLAIN_SYSTEM = (
+    "너는 20대 주식 초보 투자자를 위한 금융 용어 사전이다. 쉬운 한국어 존댓말로 설명한다.\n"
+    "규칙: 용어의 **정의와 개념 설명까지만** 한다 — 특정 종목·시장에 대한 영향 판단, "
+    "전망, 매수·매도 시사는 절대 금지. 제공된 근거 자료가 있으면 그 내용을 우선해 설명하고, "
+    "근거가 없고 확실히 아는 용어가 아니면 모른다고 답하라. 2~4문장."
+)
+
+TERM_EXPLAIN_TMPL = (
+    "용어: {term}\n"
+    "이 용어가 나온 화면: {tab_desc}\n"
+    "용어가 쓰인 문맥: {context}\n\n"
+    "근거 자료(한국은행 경제금융용어 700선·공시 유형 해설):\n{grounds}"
+)
+
+TERM_EXPLAIN_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {"explanation": {"type": "string"}},
+    "required": ["explanation"],
+}
+
 # structured output — strict 모드는 모든 필드 required + additionalProperties false 필요
 SUMMARY_LABEL_SCHEMA = {
     "type": "object",
