@@ -215,6 +215,8 @@ def test_ecos_direction_and_card_update(client):
 
     respx.get(host="ecos.bok.or.kr").mock(side_effect=responder)
     with SessionLocal() as db:
+        db.query(SourceItem).filter(SourceItem.tab == "bok").delete()  # 다른 테스트의 bok 카드 제거
+        db.commit()
         decision = upsert_source_item(  # 수동 시드된 결정문 카드가 지표를 받는다
             db,
             tab="bok",
