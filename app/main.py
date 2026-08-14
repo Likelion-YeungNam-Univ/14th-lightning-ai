@@ -9,6 +9,7 @@ from app.routers import (
     admin,
     auth,
     cards,
+    events,
     health,
     markets,
     me_stocks,
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(cards.router)
     app.include_router(saved.router)
     app.include_router(terms.router)
+    app.include_router(events.router)
     app.include_router(admin.router)
     return app
 
