@@ -51,27 +51,34 @@ DART_OK = {
 DART_EMPTY = {"status": "013", "message": "조회된 데이터가 없습니다."}
 
 BRIEFING_XML = """<?xml version="1.0" encoding="UTF-8"?>
-<response><body>
+<response>
+<header><resultCode>0</resultCode><resultMsg>NORMAL_SERVICE</resultMsg></header>
+<body>
   <NewsItem>
     <NewsItemId>B001</NewsItemId><MinisterCode>산업통상부</MinisterCode>
     <Title>반도체 특별법 시행령 개정안 입법예고</Title>
     <DataContents>&lt;p&gt;정부는 반도체 산업 지원을 확대한다&lt;/p&gt;</DataContents>
-    <ApproveDate>2026-08-01 10:00:00</ApproveDate>
+    <ApproveDate>08/01/2026 10:00:00</ApproveDate>
     <OriginalUrl>https://korea.kr/news/B001</OriginalUrl>
   </NewsItem>
   <NewsItem>
     <NewsItemId>B002</NewsItemId><MinisterCode>산업통상부</MinisterCode>
     <Title>지역 소상공인 판로 지원 행사 개최</Title>
     <DataContents>산업 키워드와 무관한 행사 안내</DataContents>
-    <ApproveDate>2026-08-02 10:00:00</ApproveDate>
+    <ApproveDate>08/02/2026 10:00:00</ApproveDate>
   </NewsItem>
   <NewsItem>
     <NewsItemId>B003</NewsItemId><MinisterCode>우주항공청</MinisterCode>
     <Title>매핑에 없는 부처의 반도체 관련 발표</Title>
     <DataContents>본문</DataContents>
-    <ApproveDate>2026-08-03 10:00:00</ApproveDate>
+    <ApproveDate>08/03/2026 10:00:00</ApproveDate>
   </NewsItem>
 </body></response>"""
+
+BRIEFING_EMPTY_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<response>
+<header><resultCode>0</resultCode><resultMsg>NORMAL_SERVICE</resultMsg></header>
+<body><totalCount>0</totalCount></body></response>"""
 
 BRIEFING_ERROR_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <OpenAPI_ServiceResponse><cmmMsgHeader>
@@ -148,13 +155,22 @@ def test_dart_failure_isolated(client, monkeypatch):
 
 
 @respx.mock
-def test_briefing_ministry_and_keyword_filter(client):
-    respx.get(host="apis.data.go.kr", path="/1371000/policyNewsService/policyNewsList").mock(
-        return_value=Response(200, text=BRIEFING_XML)
+def test_briefing_ministry_and_keyword_filter(client, monkeypatch):
+    monkeypatch.setattr("app.collectors.briefing.SLEEP_BETWEEN", 0)
+    calls = {"n": 0}
+
+    def responder(request):  # 3일 청크 30회 — 첫 청크만 자료, 나머지는 빈 응답
+        assert "pageNo" not in request.url.params  # v2는 페이지 파라미터가 없다
+        calls["n"] += 1
+        return Response(200, text=BRIEFING_XML if calls["n"] == 1 else BRIEFING_EMPTY_XML)
+
+    respx.get(host="apis.data.go.kr", path="/1371000/policyNewsService2/policyNewsList2").mock(
+        side_effect=responder
     )
     with SessionLocal() as db:
         seed_domestic_industries(db)
         stats = sync_regulations(db)
+        assert stats["chunks"] == 31  # 양끝 포함 91일 ÷ 3일 청크 (API 날짜 범위 제한)
         assert stats["scanned"] == 3
         assert stats["matched"] == 1  # B002는 키워드 무관, B003은 부처 미매핑
 
@@ -169,8 +185,9 @@ def test_briefing_ministry_and_keyword_filter(client):
 
 
 @respx.mock
-def test_briefing_error_xml_marked_failed(client):
-    respx.get(host="apis.data.go.kr", path="/1371000/policyNewsService/policyNewsList").mock(
+def test_briefing_error_xml_marked_failed(client, monkeypatch):
+    monkeypatch.setattr("app.collectors.briefing.SLEEP_BETWEEN", 0)
+    respx.get(host="apis.data.go.kr", path="/1371000/policyNewsService2/policyNewsList2").mock(
         return_value=Response(200, text=BRIEFING_ERROR_XML)
     )
     with SessionLocal() as db:

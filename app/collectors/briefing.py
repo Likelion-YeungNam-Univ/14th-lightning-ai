@@ -1,18 +1,23 @@
-"""F-4.2 — 국내 규제 동향 수집 (정책브리핑 정책뉴스 API).
+"""F-4.2 — 국내 규제 동향 수집 (정책브리핑 정책뉴스 API v2).
 
-부처 1차 필터 → 산업 키워드 2차 필터. 조회 기간 3개월.
-이미지·사진·영상 URL은 저장·노출하지 않는다(공공누리). 본문 텍스트는 요약 입력용으로만
-content에 보관하고 화면에 직접 노출하지 않는다 (확정사항 6절).
+실측(2026-08-14, policyNewsService2 스웨거 + 실호출):
+- 엔드포인트 `policyNewsService2/policyNewsList2` — 구 `policyNewsService`는 신규 키로 호출 불가
+- 파라미터는 serviceKey·startDate·endDate(YYYYMMDD) **3개뿐** (페이지 파라미터 없음)
+- **날짜 범위 최대 3일** (초과 시 오류 98) → 90일을 3일 청크 30회로 나눠 훑는다
+- ApproveDate 형식 `MM/DD/YYYY HH24:MI:SS`
+- 인증키는 포털이 URL 인코딩된 값을 주므로 디코딩 후 사용(이중 인코딩 방지)
 
-주의: 응답은 XML. 부처명 필드(MinisterCode)가 2025.10 조직 개편을 반영했는지 첫 실행
-로그로 대조한다(V1) — 미매핑 부처명 상위를 남기므로 매핑표(data/)만 고치면 된다.
+부처 1차 필터 → 산업 키워드 2차 필터. 이미지·사진 URL은 저장·노출하지 않는다(공공누리).
+본문 텍스트는 요약 입력용으로만 content에 보관한다 (확정사항 6절).
 """
 
 import html
 import logging
 import re
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
+from urllib.parse import unquote
 
 from sqlalchemy.orm import Session
 
@@ -28,12 +33,18 @@ from app.models import MARKET_DOMESTIC, IndustryAgency
 
 logger = logging.getLogger(__name__)
 
-LIST_URL = "http://apis.data.go.kr/1371000/policyNewsService/policyNewsList"
+LIST_URL = "https://apis.data.go.kr/1371000/policyNewsService2/policyNewsList2"
 WINDOW_DAYS = 90  # 최근 3개월 (F-4.2)
-PAGE_SIZE = 100
-MAX_PAGES = 40  # 3개월 전체 상한 — 일 트래픽(10,000) 대비 안전
+CHUNK_DAYS = 3  # API 제한 — 날짜 범위 3일 초과 시 오류 98
+SLEEP_BETWEEN = 0.2  # 초당 요청 제한(오류 23) 회피 — 테스트에서 0으로 패치
 
 _TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _service_key() -> str:
+    """포털 '일반 인증키'는 URL 인코딩된 형태 — 그대로 쓰면 이중 인코딩되어 인증 실패."""
+    key = settings.briefing_api_key
+    return unquote(key) if "%" in key else key
 
 
 def _strip_html(raw: str | None) -> str:
@@ -43,12 +54,33 @@ def _strip_html(raw: str | None) -> str:
 def _parse_date(raw: str | None) -> datetime | None:
     if not raw:
         return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y%m%d"):
+    s = raw.strip()[:19]
+    for fmt in ("%m/%d/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y%m%d"):
         try:
-            return datetime.strptime(raw.strip()[: len(fmt) + 2][:19], fmt)
+            return datetime.strptime(s, fmt)
         except ValueError:
             continue
     return None
+
+
+def _fetch_chunk(start: datetime, end: datetime) -> list[ET.Element]:
+    resp = get_with_retry(
+        LIST_URL,
+        params={
+            "serviceKey": _service_key(),
+            "startDate": start.strftime("%Y%m%d"),
+            "endDate": end.strftime("%Y%m%d"),
+        },
+    )
+    root = ET.fromstring(resp.text)
+    gateway_err = root.findtext(".//returnReasonCode")
+    if gateway_err:
+        msg = root.findtext(".//returnAuthMsg")
+        raise RuntimeError(f"정책브리핑 게이트웨이 오류 {gateway_err}: {msg}")
+    result_code = (root.findtext(".//resultCode") or "0").strip()
+    if result_code not in ("0", "00"):
+        raise RuntimeError(f"정책브리핑 오류 {result_code}: {root.findtext('.//resultMsg')}")
+    return list(root.iter("NewsItem"))
 
 
 def sync_regulations(db: Session) -> dict:
@@ -64,30 +96,18 @@ def sync_regulations(db: Session) -> dict:
         for name in ind.agencies:
             by_ministry.setdefault(name, []).append(ind)
 
-    stats = {"pages": 0, "scanned": 0, "matched": 0}
+    stats = {"chunks": 0, "scanned": 0, "matched": 0}
     unmatched: dict[str, int] = {}
-    start = (utcnow() - timedelta(days=WINDOW_DAYS)).strftime("%Y%m%d")
-    end = utcnow().strftime("%Y%m%d")
+    now = utcnow()
 
     try:
-        for page in range(1, MAX_PAGES + 1):
-            resp = get_with_retry(
-                LIST_URL,
-                params={
-                    "serviceKey": settings.briefing_api_key,
-                    "startDate": start,
-                    "endDate": end,
-                    "pageNo": page,
-                    "numOfRows": PAGE_SIZE,
-                },
-            )
-            root = ET.fromstring(resp.text)
-            err = root.findtext(".//returnReasonCode")
-            if err:
-                raise RuntimeError(f"정책브리핑 오류 {err}: {root.findtext('.//returnAuthMsg')}")
-
-            news_items = list(root.iter("NewsItem"))
-            stats["pages"] = page
+        chunk_start = now - timedelta(days=WINDOW_DAYS)
+        while chunk_start <= now:
+            chunk_end = min(chunk_start + timedelta(days=CHUNK_DAYS - 1), now)
+            if stats["chunks"]:
+                time.sleep(SLEEP_BETWEEN)
+            news_items = _fetch_chunk(chunk_start, chunk_end)
+            stats["chunks"] += 1
             stats["scanned"] += len(news_items)
 
             for news in news_items:
@@ -112,18 +132,14 @@ def sync_regulations(db: Session) -> dict:
                     source_key=(news.findtext("NewsItemId") or "").strip(),
                     title=title,  # 원문 그대로 (F-5.1.2)
                     published_at=_parse_date(news.findtext("ApproveDate")),
-                    origin_url=(
-                        (news.findtext("OriginalUrl") or news.findtext("TitleUrl") or "").strip()
-                        or None
-                    ),
+                    origin_url=(news.findtext("OriginalUrl") or "").strip() or None,
                     content=body[:8000],  # 요약 입력용 — 이미지 URL은 저장하지 않는다
                 )
                 for ind in hit:
                     ensure_industry_link(db, item.id, MARKET_DOMESTIC, ind.industry_key)
                 stats["matched"] += 1
 
-            if len(news_items) < PAGE_SIZE:
-                break
+            chunk_start = chunk_end + timedelta(days=1)
 
         db.commit()
         mark_status(db, "regulation", "domestic", True, f"{stats['matched']}건")
@@ -133,7 +149,7 @@ def sync_regulations(db: Session) -> dict:
         logger.warning("규제 동향 수집 실패: %s", e)
         stats["error"] = str(e)[:200]
 
-    if unmatched:  # V1 — 부처명 문자열 대조 근거
+    if unmatched:  # 부처명 개편 대조용 — 매핑표(data/)만 고치면 된다
         top = sorted(unmatched.items(), key=lambda kv: -kv[1])[:10]
-        logger.info("매핑에 없는 부처명 상위(V1 대조용): %s", top)
+        logger.info("매핑에 없는 부처명 상위(대조용): %s", top)
     return stats
