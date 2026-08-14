@@ -15,14 +15,19 @@ from app.ai.guardrail import find_unsourced_numbers, find_violations
 from app.ai.llm_client import OpenAIClient
 from app.ai.prompts import (
     LABEL_GUIDE,
+    RELEVANCE_GUIDE,
     RETRY_SUFFIX,
+    SUMMARY_LABEL_REL_SCHEMA,
     SUMMARY_LABEL_SCHEMA,
     SUMMARY_ONLY_SCHEMA,
     SUMMARY_USER_TMPL,
     SYSTEM_COMMON,
 )
 from app.models import (
+    MARKET_OVERSEAS,
+    DisclosureFormType,
     GeneratedContent,
+    IndustryAgency,
     SourceItem,
     SourceItemIndustry,
     SourceItemStock,
@@ -39,14 +44,20 @@ KIND_BY_TAB = {
     "bok": "한국은행 기준금리 결정",
     "fed": "미국 기준금리(FOMC) 결정",
 }
+KIND_OVERSEAS = {
+    "disclosure": "미국 상장사 공시(SEC 제출 서류, 영문)",
+    "regulation": "미국 연방기관의 규제 발표(영문)",
+}
 
 
-def _input_text(item: SourceItem, unit_name: str | None) -> str:
+def _input_text(item: SourceItem, unit_name: str | None, form_desc: str | None = None) -> str:
     """탭별 고정 입력 (F-5.1) — 다른 탭 자료를 섞지 않는다."""
     if item.tab == "disclosure":
         parts = [f"종목: {unit_name}" if unit_name else "", f"제목: {item.title}"]
         if item.doc_type:
             parts.append(f"공시유형: {item.doc_type}")
+        if form_desc:  # 미국 폼 해설 — 제목만으로는 의미가 없다 (F-4.6.1)
+            parts.append(f"유형 해설: {form_desc}")
         return " / ".join(p for p in parts if p)
     if item.tab == "regulation":
         return f"제목: {item.title}\n본문: {(item.content or '')[:4000]}"
@@ -72,7 +83,14 @@ def _units(db: Session, item: SourceItem) -> list[tuple[str, str, str | None]]:
         return [("stock", r.stock_code, names.get(r.stock_code)) for r in rows]
     if item.tab == "regulation":
         rows = db.query(SourceItemIndustry).filter_by(source_item_id=item.id).all()
-        return [("industry", r.industry_key, None) for r in rows]
+        names = {
+            ia.industry_key: ia.name
+            for ia in db.query(IndustryAgency).filter(
+                IndustryAgency.market == item.market,
+                IndustryAgency.industry_key.in_([r.industry_key for r in rows]),
+            )
+        }
+        return [("industry", r.industry_key, names.get(r.industry_key)) for r in rows]
     return [("global", "global", None)]
 
 
@@ -120,13 +138,19 @@ def generate_summaries(
             .order_by(SourceItem.published_at.desc().nullslast())
             .all()
         )
-    stats = {"generated": 0, "skipped": 0, "locked": 0, "emptied": 0, "failed": 0}
+    stats = {"generated": 0, "skipped": 0, "locked": 0, "emptied": 0, "dropped": 0, "failed": 0}
 
     for item in items:
         if item.tab not in TARGET_TABS:
             stats["skipped"] += 1
             continue
         with_label = item.tab in LABEL_TABS
+        # 해외 규제는 요약 단계에서 업종 관련성을 최종 판단한다 (F-4.7.2)
+        with_relevance = item.tab == "regulation" and item.market == MARKET_OVERSEAS
+        form_desc = None
+        if item.tab == "disclosure" and item.doc_type:
+            form_row = db.get(DisclosureFormType, (item.market, item.doc_type))
+            form_desc = form_row.description if form_row else None
         for scope, scope_key, unit_name in _units(db, item):
             if limit is not None and stats["generated"] >= limit:
                 return stats
@@ -142,19 +166,35 @@ def generate_summaries(
                 stats["skipped"] += 1
                 continue
 
-            source_text = _input_text(item, unit_name)
-            user = SUMMARY_USER_TMPL.format(kind=KIND_BY_TAB[item.tab], text=source_text)
+            source_text = _input_text(item, unit_name, form_desc)
+            kind = KIND_BY_TAB[item.tab]
+            if item.market == MARKET_OVERSEAS and item.tab in KIND_OVERSEAS:
+                kind = KIND_OVERSEAS[item.tab]
+            user = SUMMARY_USER_TMPL.format(kind=kind, text=source_text)
             if with_label:
                 unit = "종목" if scope == "stock" else "업종"
                 user += LABEL_GUIDE.format(unit=unit)
+            if with_relevance:
+                user += RELEVANCE_GUIDE.format(industry_name=unit_name or scope_key)
             try:
+                schema = SUMMARY_LABEL_SCHEMA if with_label else SUMMARY_ONLY_SCHEMA
+                if with_relevance:
+                    schema = SUMMARY_LABEL_REL_SCHEMA
                 out = _guarded_generate(
                     client,
                     user=user,
-                    schema=SUMMARY_LABEL_SCHEMA if with_label else SUMMARY_ONLY_SCHEMA,
+                    schema=schema,
                     source_text=source_text,
                     with_label=with_label,
                 )
+                if with_relevance and out.get("relevant") is False:
+                    # 무관 판정 — 카드를 만들지 않고 업종 연결을 버린다 (F-4.7.2)
+                    link = db.get(SourceItemIndustry, (item.id, item.market, scope_key))
+                    if link is not None:
+                        db.delete(link)
+                    db.commit()
+                    stats["dropped"] += 1
+                    continue
                 if existing is None:
                     existing = GeneratedContent(
                         source_item_id=item.id, scope=scope, scope_key=scope_key

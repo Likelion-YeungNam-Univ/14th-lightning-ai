@@ -13,10 +13,12 @@ from sqlalchemy.orm import Session
 from app.collectors.briefing import sync_regulations
 from app.collectors.dart import sync_disclosures
 from app.collectors.ecos import sync_bok_rate
+from app.collectors.fedreg import sync_us_regulations
 from app.collectors.fred import sync_fed_rate
+from app.collectors.sec import sync_sec_disclosures
 from app.collectors.youtube import sync_youtube
 from app.deps import utcnow
-from app.models import MARKET_DOMESTIC, SessionStock, SourceItem, StockMaster
+from app.models import MARKET_DOMESTIC, MARKET_OVERSEAS, SessionStock, SourceItem, StockMaster
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +36,14 @@ def registered_stocks(db: Session) -> list[StockMaster]:
 def collect_for_stocks(db: Session, stocks: list[StockMaster]) -> dict:
     """종목 종속 수집(공시·유튜브). 온디맨드 훅이 새 종목 1개로 부른다."""
     domestic = [s for s in stocks if s.market == MARKET_DOMESTIC]
-    return {
-        "disclosure": sync_disclosures(db, domestic),  # 해외 공시(SEC)는 이슈 #6
+    overseas = [s for s in stocks if s.market == MARKET_OVERSEAS]
+    result = {
+        "disclosure": sync_disclosures(db, domestic),
         "youtube": sync_youtube(db, stocks),
     }
+    if overseas:
+        result["sec_disclosure"] = sync_sec_disclosures(db, overseas)
+    return result
 
 
 def collect_all(db: Session) -> dict:
@@ -45,6 +51,7 @@ def collect_all(db: Session) -> dict:
     stocks = registered_stocks(db)
     result = collect_for_stocks(db, stocks)
     result["regulation"] = sync_regulations(db)
+    result["us_regulation"] = sync_us_regulations(db)
     result["bok"] = sync_bok_rate(db)
     result["fed"] = sync_fed_rate(db)
     result["purged"] = purge_old_items(db)
