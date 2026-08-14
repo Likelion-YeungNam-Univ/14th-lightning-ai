@@ -30,6 +30,7 @@
     },
     "유상증자결정": {
       "endpoint": "piicDecsn",
+      "_computed": "첫 슬롯 '조달 금액'은 아래 fdpp_* 6개 합산으로 코드가 생성한다(이슈 #26). 숫자 아닌 값 혼입 시 합계 생략",
       "fields": [
         {"key": "nstk_ostk_cnt", "label": "신주 수(보통주)", "unit": "주", "slot": true},
         {"key": "ic_mthn", "label": "증자 방식", "slot": true},

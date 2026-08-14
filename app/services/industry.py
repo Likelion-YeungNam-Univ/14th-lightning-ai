@@ -138,3 +138,15 @@ def load_dart_detail_map() -> dict:
     """이슈 #18 — 정형 API 매핑표: form_code → {endpoint, fields}."""
     with open(DATA_DIR / "dart_detail_map.json", encoding="utf-8") as f:
         return json.load(f)["types"]
+
+
+def dart_classification_codes() -> tuple[list[str], list[str]]:
+    """DART report_nm 분류용 코드 목록: (세부 유형, 포장 유형) — 각각 긴 이름 우선.
+
+    '주요사항보고서(유상증자결정)'처럼 포장 유형이 세부 유형보다 길 수 있어
+    단순 길이 정렬로는 포장이 먼저 잡힌다(이슈 #26에서 발견) — 세부 유형을 먼저 대조한다.
+    """
+    rows = _form_type_data()["domestic"]
+    specific = sorted((r["form_code"] for r in rows if not r.get("wrapper")), key=len, reverse=True)
+    wrappers = sorted((r["form_code"] for r in rows if r.get("wrapper")), key=len, reverse=True)
+    return specific, wrappers

@@ -499,3 +499,77 @@ def test_detail_fields_feed_summary_input(client):
         stats = generate_summaries(db, fake, items=[item])
         assert stats["generated"] == 1 and len(fake.calls) == 1  # 재생성 없음
         assert "공시 상세" in fake.calls[0]  # 정형 필드가 입력에 포함
+
+
+@respx.mock
+def test_funding_total_slot(client, monkeypatch):
+    """이슈 #26 — 유상증자 첫 슬롯 = 조달 금액 합산. 숫자 아닌 값 혼입 시 합계 생략."""
+    monkeypatch.setattr("app.collectors.base.time.sleep", lambda _s: None)
+    from app.collectors.dart import sync_disclosures
+    from app.services.industry import seed_form_types
+
+    respx.get(host="opendart.fss.or.kr", path="/api/list.json").mock(
+        return_value=Response(
+            200,
+            json={
+                "status": "000",
+                "list": [
+                    {
+                        "rcept_no": "pi-1",
+                        "report_nm": "주요사항보고서(유상증자결정)",
+                        "rcept_dt": "20260813",
+                    },
+                    {
+                        "rcept_no": "pi-2",
+                        "report_nm": "[기재정정]주요사항보고서(유상증자결정)",
+                        "rcept_dt": "20260812",
+                    },
+                ],
+            },
+        )
+    )
+    respx.get(host="opendart.fss.or.kr", path="/api/piicDecsn.json").mock(
+        return_value=Response(
+            200,
+            json={
+                "status": "000",
+                "list": [
+                    {  # 정상 — 용도별 합산 (시설 100,000 + 운영 50,000, 나머지 "-")
+                        "rcept_no": "pi-1",
+                        "fdpp_fclt": "100,000",
+                        "fdpp_op": "50,000",
+                        "fdpp_bsninh": "-",
+                        "fdpp_dtrp": "-",
+                        "fdpp_ocsa": "-",
+                        "fdpp_etc": "-",
+                        "nstk_ostk_cnt": "1,600",
+                        "ic_mthn": "주주배정증자",
+                    },
+                    {  # 숫자 아닌 값 혼입 — 합계 생략, 나머지 슬롯은 유지
+                        "rcept_no": "pi-2",
+                        "fdpp_fclt": "미정",
+                        "fdpp_op": "50,000",
+                        "nstk_ostk_cnt": "800",
+                        "ic_mthn": "제3자배정증자",
+                    },
+                ],
+            },
+        )
+    )
+    with SessionLocal() as db:
+        seed_form_types(db)
+        stock = db.query(StockMaster).filter_by(stock_code="333330").one()
+        stock.corp_code = "C-PI"
+        db.commit()
+        sync_disclosures(db, [stock])
+
+        ok = db.query(SourceItem).filter_by(source_key="pi-1").one()
+        assert ok.doc_type == "유상증자결정"  # 포장 유형(주요사항보고서)이 아닌 세부 유형
+        assert ok.detail_json["slots"][0] == {"label": "조달 금액", "value": "150,000원"}
+        assert "조달 금액(합계): 150,000원" in ok.content  # 요약 입력에도 포함 (F-5.1.3 정합)
+        assert {"label": "증자 방식", "value": "주주배정증자"} in ok.detail_json["slots"]
+
+        bad = db.query(SourceItem).filter_by(source_key="pi-2").one()
+        labels = [s["label"] for s in bad.detail_json["slots"]]
+        assert "조달 금액" not in labels  # 틀린 총액을 만들지 않는다
+        assert "증자 방식" in labels
