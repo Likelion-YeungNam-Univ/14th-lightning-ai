@@ -10,7 +10,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app.models import MARKET_DOMESTIC, IndustryAgency
+from app.models import MARKET_DOMESTIC, MARKET_OVERSEAS, DisclosureFormType, IndustryAgency
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
@@ -62,5 +62,56 @@ def seed_domestic_industries(db: Session) -> int:
             existing.agencies = row["ministries"]
             existing.keywords = row["keywords"]
             existing.profile = row["profile"]
+    db.commit()
+    return len(rows)
+
+
+@lru_cache(maxsize=1)
+def load_overseas_industries() -> list[dict]:
+    with open(DATA_DIR / "overseas_industry.json", encoding="utf-8") as f:
+        return json.load(f)["industries"]
+
+
+def seed_overseas_industries(db: Session) -> int:
+    """해외(SIC) 업종 행 갱신(멱등) — F-4.7.1. industry_key = SIC 코드."""
+    rows = load_overseas_industries()
+    for row in rows:
+        existing = db.get(IndustryAgency, (MARKET_OVERSEAS, row["sic"]))
+        if existing is None:
+            db.add(
+                IndustryAgency(
+                    market=MARKET_OVERSEAS,
+                    industry_key=row["sic"],
+                    name=row["name"],
+                    agencies=row["agencies"],
+                    keywords=row["keywords"],
+                    profile=row["profile"],
+                )
+            )
+        else:
+            existing.name = row["name"]
+            existing.agencies = row["agencies"]
+            existing.keywords = row["keywords"]
+            existing.profile = row["profile"]
+    db.commit()
+    return len(rows)
+
+
+def seed_form_types(db: Session) -> int:
+    """미국 공시 폼 해설 시드(멱등) — F-4.6.1. 요약 입력 + RAG 소스."""
+    with open(DATA_DIR / "disclosure_form_types.json", encoding="utf-8") as f:
+        rows = json.load(f)["overseas"]
+    for row in rows:
+        existing = db.get(DisclosureFormType, (MARKET_OVERSEAS, row["form_code"]))
+        if existing is None:
+            db.add(
+                DisclosureFormType(
+                    market=MARKET_OVERSEAS,
+                    form_code=row["form_code"],
+                    description=row["description"],
+                )
+            )
+        else:
+            existing.description = row["description"]
     db.commit()
     return len(rows)
