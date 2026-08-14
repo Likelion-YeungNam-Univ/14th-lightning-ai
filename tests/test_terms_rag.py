@@ -112,6 +112,33 @@ def test_explain_flow_cache_and_sources(client, monkeypatch):
     assert r2.json()["cached"] is True and len(fake.calls) == 1
 
 
+def test_explain_exact_term_lookup(client, monkeypatch):
+    """표제어 정확 일치 — 벡터 검색 없이 사전 항목이 근거가 된다 ('PER' → '주가수익비율(PER)')."""
+    ratelimit.reset()
+    with SessionLocal() as db:
+        _seed_chunks(db)
+        db.add(
+            KnowledgeChunk(
+                source="bok_700",
+                term="주가수익비율(PER)",
+                content="주가를 주당순이익으로 나눈 값으로 주가 수준을 평가하는 지표다.",
+                embedding=E_FAR,
+            )
+        )
+        db.query(TermCache).delete()
+        db.commit()
+    fake = FakeRagLLM([{"explanation": "PER은 주가를 주당순이익으로 나눈 지표예요."}])
+    monkeypatch.setattr("app.routers.terms.get_llm_client", lambda: fake)
+
+    r = _post_term(client, "PER", tab="disclosure")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["sources"] == [
+        {"term": "주가수익비율(PER)", "source": "bok_700", "similarity": 1.0}
+    ]
+    assert "주당순이익으로 나눈" in fake.calls[0]  # 표제어 정의가 근거로 주입
+
+
 def test_explain_validation(client, monkeypatch):
     ratelimit.reset()
     monkeypatch.setattr("app.routers.terms.get_llm_client", lambda: FakeRagLLM([]))

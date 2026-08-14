@@ -16,7 +16,7 @@ from app.ai.prompts import (
     TERM_EXPLAIN_SYSTEM,
     TERM_EXPLAIN_TMPL,
 )
-from app.ai.rag import search_knowledge
+from app.ai.rag import find_exact_term, search_knowledge
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,11 @@ def generate_term_explanation(
     db: Session, client: OpenAIClient, *, term: str, tab: str, context: str | None
 ) -> dict:
     """반환: {explanation(실패 시 None), sources}."""
-    hits = search_knowledge(db, client.embed([term])[0], sources=KNOWLEDGE_SOURCES)
+    exact = find_exact_term(db, term)  # 표제어 일치가 있으면 그것이 정답 — 벡터 검색 생략
+    if exact is not None:
+        hits = [(exact, 1.0)]
+    else:
+        hits = search_knowledge(db, client.embed([term])[0], sources=KNOWLEDGE_SOURCES)
     grounds = (
         "\n\n".join(f"[{chunk.term}] {chunk.content[:800]}" for chunk, _sim in hits)
         or "(검색된 근거 없음)"

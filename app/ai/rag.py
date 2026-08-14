@@ -6,6 +6,7 @@ Postgres에서는 pgvector 코사인 연산자를 쓰고, 테스트(sqlite)에�
 
 import logging
 import math
+import re
 
 from sqlalchemy.orm import Session
 
@@ -14,7 +15,26 @@ from app.models import KnowledgeChunk
 logger = logging.getLogger(__name__)
 
 TOP_K = 3
-MIN_SIMILARITY = 0.35  # 하한 미달 근거는 주입하지 않는다 (환각 유도 방지)
+# 하한 미달 근거는 주입하지 않는다 (환각 유도 방지). 실측(2026-08-14): 사전에 없는
+# 용어('공매도')도 0.41~0.46짜리 무관 근거가 잡혀 0.35 → 0.45로 상향
+MIN_SIMILARITY = 0.45
+
+
+def _norm_term(s: str) -> str:
+    return re.sub(r"\s+", "", s).lower()
+
+
+def find_exact_term(db: Session, term: str) -> KnowledgeChunk | None:
+    """표제어 정확 일치 — 사전 조회 시맨틱. '주가수익비율(PER)'은 'PER'로도 잡힌다."""
+    q = _norm_term(term)
+    if len(q) < 2:
+        return None
+    pattern = term.strip().replace("%", "").replace("_", "")
+    for chunk in db.query(KnowledgeChunk).filter(KnowledgeChunk.term.ilike(f"%{pattern}%")):
+        nt = _norm_term(chunk.term)
+        if nt == q or nt.startswith(f"{q}(") or f"({q})" in nt:
+            return chunk
+    return None
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
