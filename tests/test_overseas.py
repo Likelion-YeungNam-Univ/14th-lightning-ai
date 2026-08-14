@@ -97,7 +97,7 @@ def test_overseas_master_resolves_cik_and_sic(client, monkeypatch, tmp_path):
         assert seen_ua and all(ua == settings.sec_user_agent for ua in seen_ua)  # UA 필수
         # 업종·폼 해설 시드 동반
         assert stats["industries"] == len(load_overseas_industries())
-        assert stats["form_types"] == 4
+        assert stats["form_types"] == 16  # 국내 12 + 미국 4 (확정사항 5절)
 
 
 @respx.mock
