@@ -20,6 +20,11 @@ LABEL_GUIDE = (
     "- label_reason: 판단 이유 1~2문장. 퍼센트(%) 표기 금지, 예측 표현 금지."
 )
 
+RELEVANCE_GUIDE = (
+    "\n이 자료가 '{industry_name}' 업종의 기업 활동과 실질적으로 관련 있는지도 판단하라.\n"
+    "- relevant: 관련 있으면 true, 무관하면 false. 무관하면 다른 필드는 짧게 채워도 된다."
+)
+
 RETRY_SUFFIX = (
     "\n\n[재생성 요청] 직전 출력이 금지 표현을 포함했다: {reasons}. "
     "해당 표현 없이 사실 서술만으로 다시 작성하라."
@@ -54,6 +59,20 @@ SUMMARY_ONLY_SCHEMA = {
         "summary_full": {"type": "string"},
     },
     "required": ["summary_short", "summary_full"],
+}
+
+# 해외 규제 전용 — 2차 관련성 판단(F-4.7.2) 필드 추가
+SUMMARY_LABEL_REL_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "relevant": {"type": "boolean"},
+        "summary_short": {"type": "string"},
+        "summary_full": {"type": "string"},
+        "label": {"type": "string", "enum": ["positive", "neutral", "negative"]},
+        "label_reason": {"type": "string"},
+    },
+    "required": ["relevant", "summary_short", "summary_full", "label", "label_reason"],
 }
 
 LINK_SENTENCE_SCHEMA = {
