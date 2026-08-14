@@ -23,6 +23,7 @@ from app.collectors.base import (
 from app.config import settings
 from app.deps import utcnow
 from app.models import MARKET_DOMESTIC, DisclosureFormType, StockMaster
+from app.services.industry import load_dart_detail_map
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,49 @@ def sync_corp_codes(db: Session) -> dict:
     return stats
 
 
+def _enrich_details(db: Session, stock: StockMaster, typed_items: dict, bgn_de: str) -> None:
+    """이슈 #18 — 정형 API(자기주식·증자·감자·소송)를 접수번호로 조인해 구조화 필드 저장.
+
+    실패해도 목록 수집분은 유효하므로 유형 단위로 삼키고 로그만 남긴다.
+    content(라벨: 값 텍스트)는 요약 입력, detail_json.slots는 카드 배지용.
+    """
+    detail_map = load_dart_detail_map()
+    for doc_type, items in typed_items.items():
+        spec = detail_map[doc_type]
+        try:
+            resp = get_with_retry(
+                f"https://opendart.fss.or.kr/api/{spec['endpoint']}.json",
+                params={
+                    "crtfc_key": settings.dart_api_key,
+                    "corp_code": stock.corp_code,
+                    "bgn_de": bgn_de,
+                    "end_de": utcnow().strftime("%Y%m%d"),
+                },
+            )
+            data = resp.json()
+            if data.get("status") != "000":
+                continue  # 013 포함 — 상세 없음이면 제목 기반 요약으로 진행
+            by_rcept = {row.get("rcept_no"): row for row in data.get("list", [])}
+            for item in items:
+                row = by_rcept.get(item.source_key)
+                if row is None:
+                    continue
+                lines, slots = [], []
+                for field in spec["fields"]:
+                    value = str(row.get(field["key"]) or "").strip()
+                    if not value or value == "-":
+                        continue
+                    rendered = f"{value}{field.get('unit', '')}"
+                    lines.append(f"{field['label']}: {rendered}")
+                    if field.get("slot"):
+                        slots.append({"label": field["label"], "value": rendered})
+                if lines:
+                    item.content = "\n".join(lines)
+                    item.detail_json = {"slots": slots}
+        except Exception as e:  # 유형 단위 격리 — 실패해도 목록은 살아 있다
+            logger.warning("정형 API 실패 %s/%s: %s", stock.stock_code, doc_type, e)
+
+
 def sync_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
     """F-4.1 — 종목별 최근 공시 적재. 종목 단위 실패 격리(F-4.9).
 
@@ -115,19 +159,24 @@ def sync_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
             else:
                 items = data.get("list", [])
 
+            typed_items: dict[str, list] = {}  # 정형 API 대상 유형 → 아이템 (이슈 #18)
             for it in items:
                 title = it["report_nm"].strip()
+                doc_type = next((fc for fc in form_codes if fc in title), None)
                 item = upsert_source_item(
                     db,
                     tab="disclosure",
                     market=stock.market,
                     source_key=it["rcept_no"],
                     title=title,  # 원문 그대로 (F-5.1.2)
-                    doc_type=next((fc for fc in form_codes if fc in title), None),
+                    doc_type=doc_type,
                     published_at=datetime.strptime(it["rcept_dt"], "%Y%m%d"),
                     origin_url=f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={it['rcept_no']}",
                 )
                 ensure_stock_link(db, item.id, stock.stock_code)
+                if doc_type in load_dart_detail_map():
+                    typed_items.setdefault(doc_type, []).append(item)
+            _enrich_details(db, stock, typed_items, bgn_de)
             db.commit()
             mark_status(db, "disclosure", stock.stock_code, True, f"{len(items)}건")
             stats["stocks"] += 1

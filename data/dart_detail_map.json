@@ -1,0 +1,82 @@
+{
+  "_comment": "이슈 #18 — DART 정형 API 매핑표(PM 검수 산출물). form_code(분류표)별로 어떤 엔드포인트를 부르고, 영문 키를 어떤 한글 라벨로 어느 자리에 쓰는지 정의한다. slot=true 필드는 카드 앞면 배지(3~4개), 나머지는 요약 입력·상세 시트용. 값이 '-'이거나 비면 표시하지 않는다. 필드 목록은 DART 개발가이드 실측(2026-08-14).",
+  "types": {
+    "자기주식취득결정": {
+      "endpoint": "tsstkAqDecsn",
+      "fields": [
+        {"key": "aqpln_stk_ostk", "label": "취득 예정 주식 수(보통주)", "unit": "주", "slot": true},
+        {"key": "aqpln_prc_ostk", "label": "취득 예정 금액", "unit": "원", "slot": true},
+        {"key": "aqexpd_bgd", "label": "취득 기간 시작", "slot": true},
+        {"key": "aqexpd_edd", "label": "취득 기간 종료", "slot": true},
+        {"key": "aq_pp", "label": "취득 목적"},
+        {"key": "aq_mth", "label": "취득 방법"},
+        {"key": "cs_iv_bk", "label": "위탁 투자중개업자"},
+        {"key": "aqpln_stk_estk", "label": "취득 예정 주식 수(기타주식)", "unit": "주"},
+        {"key": "aqpln_prc_estk", "label": "취득 예정 금액(기타주식)", "unit": "원"}
+      ]
+    },
+    "자기주식처분결정": {
+      "endpoint": "tsstkDpDecsn",
+      "fields": [
+        {"key": "dppln_stk_ostk", "label": "처분 예정 주식 수(보통주)", "unit": "주", "slot": true},
+        {"key": "dppln_prc_ostk", "label": "처분 예정 금액", "unit": "원", "slot": true},
+        {"key": "dpstk_prc_ostk", "label": "처분 단가", "unit": "원", "slot": true},
+        {"key": "dpprpd_bgd", "label": "처분 기간 시작"},
+        {"key": "dpprpd_edd", "label": "처분 기간 종료"},
+        {"key": "dp_pp", "label": "처분 목적", "slot": true},
+        {"key": "dp_mth", "label": "처분 방법"},
+        {"key": "cs_iv_bk", "label": "위탁 투자중개업자"}
+      ]
+    },
+    "유상증자결정": {
+      "endpoint": "piicDecsn",
+      "fields": [
+        {"key": "nstk_ostk_cnt", "label": "신주 수(보통주)", "unit": "주", "slot": true},
+        {"key": "ic_mthn", "label": "증자 방식", "slot": true},
+        {"key": "fdpp_fclt", "label": "자금 목적 — 시설자금", "unit": "원"},
+        {"key": "fdpp_op", "label": "자금 목적 — 운영자금", "unit": "원"},
+        {"key": "fdpp_dtrp", "label": "자금 목적 — 채무상환", "unit": "원"},
+        {"key": "fdpp_ocsa", "label": "자금 목적 — 타법인 증권 취득", "unit": "원"},
+        {"key": "fdpp_bsninh", "label": "자금 목적 — 영업양수", "unit": "원"},
+        {"key": "fdpp_etc", "label": "자금 목적 — 기타", "unit": "원"},
+        {"key": "bfic_tisstk_ostk", "label": "증자 전 발행주식총수(보통주)", "unit": "주"},
+        {"key": "fv_ps", "label": "1주당 액면가", "unit": "원"}
+      ]
+    },
+    "무상증자결정": {
+      "endpoint": "fricDecsn",
+      "fields": [
+        {"key": "nstk_ostk_cnt", "label": "신주 수(보통주)", "unit": "주", "slot": true},
+        {"key": "nstk_ascnt_ps_ostk", "label": "1주당 신주 배정", "unit": "주", "slot": true},
+        {"key": "nstk_asstd", "label": "신주 배정 기준일", "slot": true},
+        {"key": "nstk_lstprd", "label": "신주 상장 예정일"},
+        {"key": "bfic_tisstk_ostk", "label": "증자 전 발행주식총수(보통주)", "unit": "주"},
+        {"key": "bddd", "label": "이사회 결의일"}
+      ]
+    },
+    "감자결정": {
+      "endpoint": "crDecsn",
+      "fields": [
+        {"key": "crstk_ostk_cnt", "label": "감자 주식 수(보통주)", "unit": "주", "slot": true},
+        {"key": "cr_rt_ostk", "label": "감자 비율(보통주)", "slot": true},
+        {"key": "cr_mth", "label": "감자 방법", "slot": true},
+        {"key": "cr_rs", "label": "감자 사유"},
+        {"key": "cr_std", "label": "감자 기준일"},
+        {"key": "bfcr_cpt", "label": "감자 전 자본금", "unit": "원"},
+        {"key": "atcr_cpt", "label": "감자 후 자본금", "unit": "원"},
+        {"key": "crsc_trspprpd", "label": "매매거래 정지 예정 기간"}
+      ]
+    },
+    "소송등의제기": {
+      "endpoint": "lwstLg",
+      "fields": [
+        {"key": "icnm", "label": "사건명", "slot": true},
+        {"key": "ac_ap", "label": "원고·신청인", "slot": true},
+        {"key": "rq_cn", "label": "청구 내용"},
+        {"key": "cpct", "label": "관할 법원"},
+        {"key": "lgd", "label": "제기 일자", "slot": true},
+        {"key": "ft_ctp", "label": "회사의 향후 대책"}
+      ]
+    }
+  }
+}

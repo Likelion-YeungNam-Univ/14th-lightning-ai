@@ -1,18 +1,44 @@
-"""F-6 — 카드 목록 조회.
+"""F-6 — 카드 목록 조회. DB만 읽는다(불변식 1) — 수집·생성은 배치가 끝냈다.
 
-이슈 #3 시점에는 수집기(#4)·AI 가공(#5)이 없으므로 카드 아이템은 **탭별 규칙을 지키는
-고정 목 데이터**다 — 프론트가 실제 스키마로 개발을 시작하는 것이 목적.
-#5에서 이 파일의 목 생성부를 DB(source_item + generated_content) 조회로 교체한다.
-조합 검증·last_stock 갱신·is_saved 규칙은 실제 구현이며 교체 대상이 아니다.
+탭별 카드 구성:
+- youtube/disclosure: 종목 링크 기준. 공시는 **노출 유형 필터**(이슈 #18, display=true만)
+- regulation: 종목의 업종(국내 12분류 / 해외 SIC) 기준
+- bok/fed: 탭 전체(결정문·지표 카드) + 업종별 연결 문장(F-6.2)
+빈 목록 사유는 collect_status로 no_data / fetch_failed를 구분한다 (F-6.4).
 """
-
-from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from app.errors import AppError
-from app.models import SessionStock, StockMaster, UserSession
+from app.models import (
+    MARKET_DOMESTIC,
+    CollectStatus,
+    GeneratedContent,
+    RateLinkSentence,
+    SavedCard,
+    SessionStock,
+    SourceItem,
+    SourceItemIndustry,
+    SourceItemStock,
+    StockMaster,
+    UserSession,
+)
+from app.services.industry import displayed_form_codes
 from app.services.markets import RATE_TABS, set_last_stock, validate_combination
+
+CARDS_PER_TAB = 20  # 탭당 20건 내외 (F-6 제안 채택)
+
+SOURCE_NAMES = {
+    ("youtube", "domestic"): "YouTube",
+    ("youtube", "overseas"): "YouTube",
+    ("disclosure", "domestic"): "DART",
+    ("disclosure", "overseas"): "SEC EDGAR",
+    ("regulation", "domestic"): "정책브리핑",
+    ("regulation", "overseas"): "Federal Register",
+    ("bok", "domestic"): "한국은행",
+    ("fed", "domestic"): "Fed",
+    ("fed", "overseas"): "Fed",
+}
 
 
 def list_cards(db: Session, session: UserSession | None, tab: str, stock_code: str) -> dict:
@@ -29,104 +55,139 @@ def list_cards(db: Session, session: UserSession | None, tab: str, stock_code: s
             set_last_stock(session, stock.market, stock_code)
             db.commit()
 
-    items = _mock_items(tab, stock)
+    items = _query_items(db, tab, stock)
+    cards = [_build_card(db, tab, stock, item) for item in items]
+    _mark_saved(db, session, cards)
     return {
         "tab": tab,
         "market": stock.market,
         "stock_code": stock_code,
-        "link_sentence": _mock_link_sentence(tab) if tab in RATE_TABS else None,
+        "link_sentence": _link_sentence(db, tab, stock) if tab in RATE_TABS else None,
         "disclaimer": tab == "youtube",
-        "reason": None if items else "no_data",
-        "items": items,
+        "reason": None if cards else _empty_reason(db, tab, stock),
+        "items": cards,
     }
 
 
-# ---------- 아래는 #5에서 DB 조회로 교체되는 목 데이터 ----------
-
-_MOCK_DATE = datetime(2026, 8, 10, 9, 0, 0)
-
-
-def _mock_link_sentence(tab: str) -> str:
-    base = "기준금리" if tab == "bok" else "미국 기준금리"
-    return f"[목데이터] {base} 동결이 이어지면 이 업종의 자금 조달 부담이 완만해지는 쪽으로 봐요"
-
-
-def _mock_items(tab: str, stock: StockMaster) -> list[dict]:
-    name = stock.name
-    common = {"published_at": _MOCK_DATE, "is_saved": False}
-    if tab == "youtube":
-        return [
-            {
-                "card_id": 900001,
-                "title": f"[목데이터] {name} 지금 사도 될까? 전문가 분석",
-                "source_name": "YouTube",
-                "origin_url": "https://www.youtube.com/watch?v=mock1",
-                "thumbnail_url": "https://i.ytimg.com/vi/mock1/hqdefault.jpg",
-                "channel_name": "주식읽어주는남자",
-                "view_count": 152_000,
-                **common,
-            },
-            {
-                "card_id": 900002,
-                "title": f"[목데이터] {name} 실적 발표 총정리",
-                "source_name": "YouTube",
-                "origin_url": "https://www.youtube.com/watch?v=mock2",
-                "thumbnail_url": "https://i.ytimg.com/vi/mock2/hqdefault.jpg",
-                "channel_name": "경제한입",
-                "view_count": 98_000,
-                **common,
-            },
-        ]
-    if tab == "disclosure":
-        return [
-            {
-                "card_id": 900011,
-                "label": "positive",
-                "label_reason": "[목데이터] 생산능력 확대는 중장기 공급 요인이라 긍정으로 봤어요.",
-                "title": "유형자산 취득 결정" if stock.market == "domestic" else "Form 8-K",
-                "summary_short": f"[목데이터] {name}이(가) 생산 설비에 대규모 투자를 결정했어요.",
-                "summary_full": (
-                    f"[목데이터] {name}이(가) 생산 설비에 대규모 투자를 결정했어요. "
-                    "생산능력이 늘어나는 방향입니다. 상세 조건은 원문에서 확인 가능해요."
-                ),
-                "source_name": "DART" if stock.market == "domestic" else "SEC EDGAR",
-                "origin_url": "https://example.com/mock-disclosure",
-                **common,
-            }
-        ]
+def _query_items(db: Session, tab: str, stock: StockMaster) -> list[SourceItem]:
+    if tab in RATE_TABS:  # 금리 탭은 종목 무관 — 탭 전체 (F-6.2)
+        return (
+            db.query(SourceItem)
+            .filter(SourceItem.tab == tab)
+            .order_by(SourceItem.published_at.desc().nullslast())
+            .limit(CARDS_PER_TAB)
+            .all()
+        )
     if tab == "regulation":
-        return [
-            {
-                "card_id": 900021,
-                "label": "neutral",
-                "label_reason": "[목데이터] 지원과 규제가 함께 담겨 있어 중립으로 봤어요.",
-                "title": "[목데이터] 첨단산업 경쟁력 강화 방안 발표",
-                "summary_short": "[목데이터] 정부가 이 업종에 대한 지원 방안을 발표했어요.",
-                "summary_full": (
-                    "[목데이터] 정부가 이 업종에 대한 지원 방안을 발표했어요. "
-                    "세부 시행 시기는 원문에서 확인할 수 있어요."
-                ),
-                "source_name": "정책브리핑" if stock.market == "domestic" else "Federal Register",
-                "origin_url": "https://example.com/mock-regulation",
-                **common,
-            }
-        ]
+        industry_key = stock.industry_code if stock.market == MARKET_DOMESTIC else stock.sic_code
+        if not industry_key:
+            return []
+        return (
+            db.query(SourceItem)
+            .join(SourceItemIndustry, SourceItemIndustry.source_item_id == SourceItem.id)
+            .filter(
+                SourceItemIndustry.market == stock.market,
+                SourceItemIndustry.industry_key == industry_key,
+                SourceItem.tab == "regulation",
+            )
+            .order_by(SourceItem.published_at.desc().nullslast())
+            .limit(CARDS_PER_TAB)
+            .all()
+        )
+
+    query = (
+        db.query(SourceItem)
+        .join(SourceItemStock, SourceItemStock.source_item_id == SourceItem.id)
+        .filter(SourceItemStock.stock_code == stock.stock_code, SourceItem.tab == tab)
+    )
+    if tab == "disclosure":  # 노출 유형 필터 (이슈 #18) — 수집은 전체, 노출만 거른다
+        market_key = "domestic" if stock.market == MARKET_DOMESTIC else "overseas"
+        query = query.filter(SourceItem.doc_type.in_(displayed_form_codes(market_key)))
+        order = SourceItem.published_at.desc().nullslast()
+    else:  # youtube — 조회수순 (수집 정렬과 동일)
+        order = SourceItem.view_count.desc().nullslast()
+    return query.order_by(order).limit(CARDS_PER_TAB).all()
+
+
+def _generated_for(db: Session, tab: str, stock: StockMaster, item: SourceItem):
+    if tab == "youtube":  # 유튜브는 생성물 없음 (F-5.1)
+        return None
     if tab in RATE_TABS:
-        is_bok = tab == "bok"
-        return [
-            {
-                "card_id": 900031 if is_bok else 900041,
-                "title": "[목데이터] 통화정책방향 결정" if is_bok else "[목데이터] FOMC Statement",
-                "summary_short": "[목데이터] 물가 안정세를 근거로 기준금리를 동결했어요.",
-                "summary_full": (
-                    "[목데이터] 금통위는 물가 안정세를 근거로 기준금리 동결을 결정했어요."
-                    if is_bok
-                    else "[목데이터] 연준은 고용과 물가를 근거로 기준금리 동결을 결정했어요."
-                ),
-                "source_name": "한국은행" if is_bok else "Fed",
-                "origin_url": "https://example.com/mock-rate",
-                "indicator_value": "2.50%" if is_bok else "4.25%",
-                **common,
-            }
-        ]
-    return []
+        scope, key = "global", "global"
+    elif tab == "regulation":
+        scope = "industry"
+        key = stock.industry_code if stock.market == MARKET_DOMESTIC else stock.sic_code
+    else:
+        scope, key = "stock", stock.stock_code
+    return (
+        db.query(GeneratedContent)
+        .filter_by(source_item_id=item.id, scope=scope, scope_key=key)
+        .one_or_none()
+    )
+
+
+def _build_card(db: Session, tab: str, stock: StockMaster, item: SourceItem) -> dict:
+    generated = _generated_for(db, tab, stock, item)
+    with_label = tab in ("disclosure", "regulation")  # F-5.2 — 라벨 부착 탭
+    return {
+        "card_id": item.id,
+        "label": generated.label if generated and with_label else None,
+        "label_reason": generated.label_reason if generated and with_label else None,
+        "title": item.title,
+        "summary_short": generated.summary_short if generated else None,
+        "summary_full": generated.summary_full if generated else None,
+        "source_name": SOURCE_NAMES.get((tab, stock.market), tab),
+        "published_at": item.published_at,
+        "origin_url": item.origin_url,
+        "is_saved": False,
+        "thumbnail_url": item.thumbnail_url,
+        "channel_name": item.channel_name,
+        "view_count": item.view_count,
+        "indicator_value": item.indicator_value if tab in RATE_TABS else None,
+        "details": (item.detail_json or {}).get("slots") or None,  # 정형 공시 배지 (이슈 #18)
+    }
+
+
+def _mark_saved(db: Session, session: UserSession | None, cards: list[dict]) -> None:
+    if session is None or not cards:
+        return
+    saved_ids = {
+        sid
+        for (sid,) in db.query(SavedCard.source_item_id).filter(
+            SavedCard.session_id == session.id,
+            SavedCard.source_item_id.in_([c["card_id"] for c in cards]),
+        )
+    }
+    for card in cards:
+        card["is_saved"] = card["card_id"] in saved_ids
+
+
+def _link_sentence(db: Session, tab: str, stock: StockMaster) -> str | None:
+    """F-6.2 — 목록 위 1회. 업종·지표 버전이 맞는 캐시가 없으면 문장 없이 카드만 (F-5.3)."""
+    industry_key = stock.industry_code if stock.market == MARKET_DOMESTIC else stock.sic_code
+    if not industry_key:
+        return None
+    indicator = (
+        db.query(SourceItem)
+        .filter(SourceItem.tab == tab, SourceItem.indicator_value.isnot(None))
+        .order_by(SourceItem.published_at.desc().nullslast())
+        .first()
+    )
+    if indicator is None:
+        return None
+    version = f"{indicator.indicator_value}|{indicator.doc_type or '동결'}"
+    row = db.get(RateLinkSentence, (stock.market, tab, industry_key, version))
+    return row.sentence if row else None
+
+
+def _empty_reason(db: Session, tab: str, stock: StockMaster) -> str:
+    """F-6.4 — 빈 목록 사유. 최근 수집이 실패했으면 fetch_failed, 아니면 no_data."""
+    scope_key = {
+        "youtube": stock.stock_code,
+        "disclosure": stock.stock_code,
+        "regulation": "domestic" if stock.market == MARKET_DOMESTIC else "overseas",
+    }.get(tab, "global")
+    status = db.get(CollectStatus, (tab, scope_key))
+    if status is not None and status.status == "failed":
+        return "fetch_failed"
+    return "no_data"
