@@ -79,3 +79,10 @@ def collect_on_stock_added(stock_code: str) -> None:
             return
         stats = collect_for_stocks(db, [stock])
         logger.info("on-demand collect %s: %s", stock_code, stats)
+        try:  # 새 종목 공시 요약까지 온디맨드로 (F-5) — 실패해도 수집분은 유효
+            from app.ai.generate import generate_for_stock
+
+            logger.info("on-demand generate %s: %s", stock_code, generate_for_stock(db, stock_code))
+        except Exception as e:
+            db.rollback()
+            logger.warning("온디맨드 생성 실패 %s: %s", stock_code, e)
