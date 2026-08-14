@@ -22,7 +22,7 @@ from app.collectors.base import (
 )
 from app.config import settings
 from app.deps import utcnow
-from app.models import StockMaster
+from app.models import MARKET_DOMESTIC, DisclosureFormType, StockMaster
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,17 @@ def sync_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
     """
     stats = {"stocks": 0, "items": 0, "failed": 0, "no_corp_code": 0}
     bgn_de = (utcnow() - timedelta(days=DISCLOSURE_WINDOW_DAYS)).strftime("%Y%m%d")
+    # report_nm → 유형 분류 (부분 일치, 긴 이름 우선) — 해설 주입(F-5.1)·RAG의 키가 된다
+    form_codes = sorted(
+        (
+            fc
+            for (fc,) in db.query(DisclosureFormType.form_code).filter(
+                DisclosureFormType.market == MARKET_DOMESTIC
+            )
+        ),
+        key=len,
+        reverse=True,
+    )
 
     for stock in stocks:
         if not stock.corp_code:
@@ -105,12 +116,14 @@ def sync_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
                 items = data.get("list", [])
 
             for it in items:
+                title = it["report_nm"].strip()
                 item = upsert_source_item(
                     db,
                     tab="disclosure",
                     market=stock.market,
                     source_key=it["rcept_no"],
-                    title=it["report_nm"].strip(),  # 원문 그대로 (F-5.1.2)
+                    title=title,  # 원문 그대로 (F-5.1.2)
+                    doc_type=next((fc for fc in form_codes if fc in title), None),
                     published_at=datetime.strptime(it["rcept_dt"], "%Y%m%d"),
                     origin_url=f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={it['rcept_no']}",
                 )
