@@ -22,8 +22,8 @@ from app.collectors.base import (
 )
 from app.config import settings
 from app.deps import utcnow
-from app.models import MARKET_DOMESTIC, DisclosureFormType, StockMaster
-from app.services.industry import load_dart_detail_map
+from app.models import StockMaster
+from app.services.industry import dart_classification_codes, load_dart_detail_map
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,24 @@ def sync_corp_codes(db: Session) -> dict:
     return stats
 
 
+# 유상증자 자금조달 목적 6분류 — 합산이 곧 총 조달 금액 (DART 서식이 총액을 용도로 배분)
+FUNDING_KEYS = ("fdpp_fclt", "fdpp_bsninh", "fdpp_op", "fdpp_dtrp", "fdpp_ocsa", "fdpp_etc")
+
+
+def _funding_total(row: dict) -> int | None:
+    """이슈 #26 — 조달 금액 합계. 숫자 아닌 값이 섞이면 None(틀린 총액을 만들지 않는다)."""
+    total, seen = 0, False
+    for key in FUNDING_KEYS:
+        raw = str(row.get(key) or "").replace(",", "").strip()
+        if not raw or raw == "-":
+            continue
+        if not raw.isdigit():
+            return None
+        total += int(raw)
+        seen = True
+    return total if seen and total > 0 else None
+
+
 def _enrich_details(db: Session, stock: StockMaster, typed_items: dict, bgn_de: str) -> None:
     """이슈 #18 — 정형 API(자기주식·증자·감자·소송)를 접수번호로 조인해 구조화 필드 저장.
 
@@ -100,6 +118,12 @@ def _enrich_details(db: Session, stock: StockMaster, typed_items: dict, bgn_de: 
                 if row is None:
                     continue
                 lines, slots = [], []
+                if doc_type == "유상증자결정":  # 첫 슬롯 = 조달 금액 합계 (디자인 확정, 이슈 #26)
+                    total = _funding_total(row)
+                    if total is not None:
+                        rendered = f"{total:,}원"
+                        lines.append(f"조달 금액(합계): {rendered}")
+                        slots.append({"label": "조달 금액", "value": rendered})
                 for field in spec["fields"]:
                     value = str(row.get(field["key"]) or "").strip()
                     if not value or value == "-":
@@ -124,17 +148,8 @@ def sync_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
     """
     stats = {"stocks": 0, "items": 0, "failed": 0, "no_corp_code": 0}
     bgn_de = (utcnow() - timedelta(days=DISCLOSURE_WINDOW_DAYS)).strftime("%Y%m%d")
-    # report_nm → 유형 분류 (부분 일치, 긴 이름 우선) — 해설 주입(F-5.1)·RAG의 키가 된다
-    form_codes = sorted(
-        (
-            fc
-            for (fc,) in db.query(DisclosureFormType.form_code).filter(
-                DisclosureFormType.market == MARKET_DOMESTIC
-            )
-        ),
-        key=len,
-        reverse=True,
-    )
+    # report_nm → 유형 분류 — 세부 유형 우선, 포장 유형(주요사항보고서 등)은 후순위 (이슈 #26)
+    specific_codes, wrapper_codes = dart_classification_codes()
 
     for stock in stocks:
         if not stock.corp_code:
@@ -162,7 +177,10 @@ def sync_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
             typed_items: dict[str, list] = {}  # 정형 API 대상 유형 → 아이템 (이슈 #18)
             for it in items:
                 title = it["report_nm"].strip()
-                doc_type = next((fc for fc in form_codes if fc in title), None)
+                doc_type = next(
+                    (fc for fc in specific_codes if fc in title),
+                    next((fc for fc in wrapper_codes if fc in title), None),
+                )
                 item = upsert_source_item(
                     db,
                     tab="disclosure",
