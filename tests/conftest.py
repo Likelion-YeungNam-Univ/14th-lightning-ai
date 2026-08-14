@@ -19,6 +19,7 @@ for _key in (
     "OPENAI_API_KEY",
 ):
     os.environ[_key] = "test-key"
+os.environ["SEC_USER_AGENT"] = "assit-test test@example.com"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
