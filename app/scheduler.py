@@ -14,6 +14,7 @@ scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
 
 def _job_daily() -> None:
+    from app.ai.generate import generate_all
     from app.collectors.krx import sync_stock_master
     from app.collectors.runner import collect_all
     from app.db import SessionLocal
@@ -25,6 +26,11 @@ def _job_daily() -> None:
             db.rollback()
             logger.warning("stock master sync 실패: %s", e)
         collect_all(db)
+        try:  # 수집 직후 AI 가공 체인 (F-5.6) — 실패해도 이미 적재된 원자료는 유효
+            generate_all(db)
+        except Exception as e:
+            db.rollback()
+            logger.warning("AI 생성 배치 실패: %s", e)
 
 
 def _job_weekly_corp_codes() -> None:
