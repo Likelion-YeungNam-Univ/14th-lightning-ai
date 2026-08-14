@@ -9,6 +9,16 @@ import pathlib
 
 _TEST_DB = pathlib.Path(__file__).parent / ".test_assit.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB}"
+# 실 키가 .env에 있어도 테스트가 실 API를 때리면 안 된다 — 가짜 키로 덮는다 (respx가 차단·목킹)
+for _key in (
+    "DART_API_KEY",
+    "ECOS_API_KEY",
+    "FRED_API_KEY",
+    "YOUTUBE_API_KEY",
+    "BRIEFING_API_KEY",
+    "OPENAI_API_KEY",
+):
+    os.environ[_key] = "test-key"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
