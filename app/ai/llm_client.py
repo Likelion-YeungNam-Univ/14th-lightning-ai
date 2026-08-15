@@ -23,7 +23,8 @@ class LLMError(Exception):
 
 
 class OpenAIClient:
-    def __init__(self, api_key: str, model: str, timeout: float = 60.0) -> None:
+    def __init__(self, api_key: str, model: str, timeout: float = 120.0) -> None:
+        # 실측(2026-08-16): 긴 규제 본문 요약은 60초를 넘기는 건이 있어 120초로 상향
         self._api_key = api_key
         self.model = model
         self.timeout = timeout
