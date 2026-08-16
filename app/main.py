@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db import init_db
@@ -32,6 +33,15 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="assit API", lifespan=lifespan)
+    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    if origins:  # 프론트 dev 서버(다른 포트)에서 직접 호출할 때 세션 쿠키가 붙도록
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,  # 쿠키 동반 필수 — 프론트도 fetch에 credentials: "include"
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
     register_exception_handlers(app)
     app.include_router(health.router)
     app.include_router(sessions.router)
