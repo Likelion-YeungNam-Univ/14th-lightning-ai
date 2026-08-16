@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     admin_token: str = ""
     session_ttl_days: int = 30  # F-1.1
     enable_scheduler: bool = False  # 로컬 개발 기본 off, 배포 환경에서 true
+    # 프론트 로컬 개발용 CORS 허용 출처(쉼표 구분). 배포는 Vercel rewrite 프록시(동일 출처)라 불필요
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
