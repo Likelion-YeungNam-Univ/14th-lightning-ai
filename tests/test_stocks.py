@@ -121,7 +121,16 @@ def test_add_limit_per_market(client, login_env, monkeypatch):
     over = client.post("/me/stocks", json={"stock_codes": ["111115"]})  # 6개 — 초과
     assert over.status_code == 400
     assert over.json()["code"] == "stock_limit_exceeded"
-    assert over.json()["details"]["market"] == "domestic"
+    details = over.json()["details"]
+    assert details["market"] == "domestic"
+    assert details["remaining"] == 0 and details["limit"] == 5  # 남은 자리 수 (F-3.5, v3 갱신)
+
+
+def test_default_limit_is_ten(client, login_env):
+    """v3 갱신 — 구분별 상한 10. 기본 4개 + 6개 추가는 성공, 7번째부터 400 + remaining."""
+    assert stock_service.STOCK_LIMIT_PER_MARKET == 10
+    _login(client)
+    # conftest 국내 시드는 6종뿐 — 상한 로직 자체는 위 테스트가 검증, 여기선 상수만 고정
 
 
 def test_reorder(client, login_env):

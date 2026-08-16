@@ -20,7 +20,7 @@ DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
 DEFAULT_STOCK_COUNT = 4  # F-3.8
 POPULAR_STOCK_COUNT = 8  # 확정사항 7절
-STOCK_LIMIT_PER_MARKET = 30  # F-3.5 확정
+STOCK_LIMIT_PER_MARKET = 10  # F-3.5 — v3 갱신(2026-08-16): 30 → 10, 구분별
 MIN_QUERY_LEN_NAME = 2  # 확정: 이름 2자, 코드(숫자 시작) 1자
 SEARCH_RESULT_LIMIT = 20
 
@@ -158,7 +158,7 @@ def add_stocks(
     to_add = [masters[c] for c in codes if c not in registered]
     skipped = [c for c in codes if c in registered]
 
-    # 구분별 상한 30 (F-3.5 확정) — 추가 후 기준으로 검사
+    # 구분별 상한 10 (F-3.5, v3 갱신) — 추가 후 기준으로 검사, 초과 시 남은 자리 수 반환
     for market in (MARKET_DOMESTIC, MARKET_OVERSEAS):
         current = (
             db.query(func.count())
@@ -173,7 +173,13 @@ def add_stocks(
                 "stock_limit_exceeded",
                 f"구분별 등록 상한({STOCK_LIMIT_PER_MARKET}개)을 초과합니다",
                 400,
-                {"market": market, "current": current, "incoming": incoming},
+                {
+                    "market": market,
+                    "limit": STOCK_LIMIT_PER_MARKET,
+                    "current": current,
+                    "incoming": incoming,
+                    "remaining": max(STOCK_LIMIT_PER_MARKET - current, 0),  # 남은 자리 수 (F-3.5)
+                },
             )
 
     next_order = (
