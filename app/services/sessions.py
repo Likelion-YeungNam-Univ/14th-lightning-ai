@@ -1,5 +1,6 @@
 """F-1 — 세션 발급·기본 종목 프로비저닝·데모 초기화."""
 
+import logging
 import uuid
 from datetime import timedelta
 
@@ -9,6 +10,8 @@ from app.config import settings
 from app.deps import utcnow
 from app.models import SavedCard, SessionStock, UserSession
 from app.services.stocks import pick_default_stocks
+
+logger = logging.getLogger(__name__)
 
 
 def registered_stock_codes(db: Session, session_id: str) -> list[str]:
@@ -23,7 +26,14 @@ def registered_stock_codes(db: Session, session_id: str) -> list[str]:
 
 def provision_default_stocks(db: Session, session: UserSession) -> None:
     """F-3.8 — 국내 기본 종목 프로비저닝. is_default로 종목 추가 전환율(핵심 지표) 산출."""
-    for order, stock in enumerate(pick_default_stocks(db)):
+    defaults = pick_default_stocks(db)
+    if not defaults:  # 종목 마스터가 비어 있음 — 시드 미복원. 조용히 넘기지 않고 로그로 알린다
+        logger.warning(
+            "기본 종목 0건 — stock_master가 비어 있습니다. scripts/restore_seed.sh 또는 "
+            "sync_stock_master를 실행하세요 (session=%s)",
+            session.id,
+        )
+    for order, stock in enumerate(defaults):
         db.add(
             SessionStock(
                 session_id=session.id,

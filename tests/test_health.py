@@ -8,7 +8,9 @@ def test_health_and_error_format():
     with TestClient(app) as client:
         r = client.get("/health")
         assert r.status_code == 200
-        assert r.json() == {"status": "ok", "db": "ok"}
+        body = r.json()
+        assert body["status"] == "ok" and body["db"] == "ok"
+        assert "seeded" in body  # 종목 마스터 적재 여부 — 빈 DB 진단용
 
         # F-7.1 — 에러도 {code, message, details} 규격
         r = client.get("/no-such-path")
