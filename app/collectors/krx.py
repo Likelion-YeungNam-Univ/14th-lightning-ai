@@ -24,6 +24,8 @@ def fetch_krx_listing() -> pd.DataFrame:
     desc = fdr.StockListing("KRX-DESC")[["Code", "Industry", "Products"]]
     df = base.merge(desc, on="Code", how="left")
     df = df[df["Market"].isin(MARKETS)]
+    # F-3.1.0(v3 갱신) — 스팩은 공시만 잔뜩 뜨고 나머지 탭이 비므로 마스터에서 제외
+    df = df[~df["Name"].astype(str).str.contains("스팩", na=False)]
     return df.astype(object).where(pd.notna(df), None)  # NaN → None
 
 
