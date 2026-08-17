@@ -297,7 +297,9 @@ class BettingRoomAttachment(Base):
     )
     kind: Mapped[str] = mapped_column(String(8))  # image | card
     image_url: Mapped[str | None] = mapped_column(Text)
-    saved_card_id: Mapped[int | None] = mapped_column(ForeignKey("saved_card.id"))
+    saved_card_id: Mapped[int | None] = mapped_column(
+        ForeignKey("saved_card.id", ondelete="SET NULL")
+    )
 
 
 class BettingEntry(Base):
@@ -329,7 +331,9 @@ class RoomComment(Base):
     )
     session_id: Mapped[str] = mapped_column(ForeignKey("session.id"))
     body: Mapped[str] = mapped_column(String(300))
-    saved_card_id: Mapped[int | None] = mapped_column(ForeignKey("saved_card.id"))
+    saved_card_id: Mapped[int | None] = mapped_column(
+        ForeignKey("saved_card.id", ondelete="SET NULL")
+    )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

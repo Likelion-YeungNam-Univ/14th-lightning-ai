@@ -124,7 +124,6 @@ def get_room(db: Session, room_id: int) -> dict:
         **_to_list_item(room, agg),
         "stock_code": room.stock_code,
         "body": room.body,
-        "creator_session_id": room.creator_session_id,
         "result_side": room.result_side,
         "settle_close_price": room.settle_close_price,
     }
@@ -147,7 +146,8 @@ def create_room(
     stock = db.get(StockMaster, stock_code)
     if stock is None:
         raise AppError("unknown_stock", "존재하지 않는 종목코드입니다", 400)
-    if target_price % 1000 != 0:
+    # 1,000원 단위 검증은 원화 표시 종목(국내)에만 적용 — 해외는 달러 표시라 단위가 다르다
+    if stock.market == MARKET_DOMESTIC and target_price % 1000 != 0:
         raise AppError("invalid_target_price", "목표가는 1,000원 단위여야 합니다", 400)
     _validate_judge_date(judge_date_, today)
 

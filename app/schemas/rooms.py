@@ -32,7 +32,6 @@ class RoomListResponse(BaseModel):
 class RoomDetailResponse(RoomListItem):
     stock_code: str
     body: str | None
-    creator_session_id: str
     result_side: str | None
     settle_close_price: int | None
 

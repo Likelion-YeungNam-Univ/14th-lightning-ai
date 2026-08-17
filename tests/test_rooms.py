@@ -67,6 +67,23 @@ def test_create_validations(client, login_env):
     assert (r.status_code, r.json()["code"]) == (400, "invalid_judge_date")
 
 
+def test_overseas_target_price_skips_1000_unit_check(client, login_env):
+    """해외 종목은 달러 표시라 1,000원 단위 검증을 적용하지 않는다(승래 리뷰 반영)."""
+    _login(client)
+    r = client.post(
+        "/rooms",
+        json={
+            "stock_code": "TSLA",
+            "title": "테슬라 250.5달러",
+            "target_price": 251,  # 1,000 단위가 아니어도 통과해야 한다
+            "judge_date": _valid_judge_date(),
+            "amount": 500,
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["room"]["target_price"] == 251
+
+
 def test_create_room_auto_joins_creator(client, login_env):
     _login(client)
     r = client.post(
