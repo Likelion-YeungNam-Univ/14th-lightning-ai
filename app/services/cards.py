@@ -126,6 +126,21 @@ def _generated_for(db: Session, tab: str, stock: StockMaster, item: SourceItem):
     )
 
 
+def _industry_key(stock: StockMaster) -> str | None:
+    return stock.industry_code if stock.market == MARKET_DOMESTIC else stock.sic_code
+
+
+def _link_sentence_for_item(
+    db: Session, tab: str, market: str, industry_key: str | None, item: SourceItem
+) -> str | None:
+    """카드 1건의 지표 스냅샷 기준 문장 조회. 캐시(F-5.3.2)는 업종+지표 버전 단위 그대로다."""
+    if not industry_key:
+        return None
+    version = f"{item.indicator_value}|{item.doc_type or '동결'}"
+    row = db.get(RateLinkSentence, (market, tab, industry_key, version))
+    return row.sentence if row else None
+
+
 def _build_card(db: Session, tab: str, stock: StockMaster, item: SourceItem) -> dict:
     generated = _generated_for(db, tab, stock, item)
     with_label = tab in ("disclosure", "regulation")  # F-5.2 — 라벨 부착 탭
@@ -145,6 +160,11 @@ def _build_card(db: Session, tab: str, stock: StockMaster, item: SourceItem) -> 
         "view_count": item.view_count,
         "indicator_value": item.indicator_value if tab in RATE_TABS else None,
         "details": (item.detail_json or {}).get("slots") or None,  # 정형 공시 배지 (이슈 #18)
+        "link_sentence": (
+            _link_sentence_for_item(db, tab, stock.market, _industry_key(stock), item)
+            if tab in RATE_TABS
+            else None
+        ),
     }
 
 
@@ -163,8 +183,8 @@ def _mark_saved(db: Session, session: UserSession | None, cards: list[dict]) -> 
 
 
 def _link_sentence(db: Session, tab: str, stock: StockMaster) -> str | None:
-    """F-6.2 — 목록 위 1회. 업종·지표 버전이 맞는 캐시가 없으면 문장 없이 카드만 (F-5.3)."""
-    industry_key = stock.industry_code if stock.market == MARKET_DOMESTIC else stock.sic_code
+    """F-6.2 — 목록 최상단 1회(하위호환). 최신 지표 카드 기준, 카드별 값은 items[].link_sentence."""
+    industry_key = _industry_key(stock)
     if not industry_key:
         return None
     indicator = (
@@ -175,9 +195,7 @@ def _link_sentence(db: Session, tab: str, stock: StockMaster) -> str | None:
     )
     if indicator is None:
         return None
-    version = f"{indicator.indicator_value}|{indicator.doc_type or '동결'}"
-    row = db.get(RateLinkSentence, (stock.market, tab, industry_key, version))
-    return row.sentence if row else None
+    return _link_sentence_for_item(db, tab, stock.market, industry_key, indicator)
 
 
 def _empty_reason(db: Session, tab: str, stock: StockMaster) -> str:

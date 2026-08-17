@@ -32,13 +32,14 @@ class Card(BaseModel):
     view_count: int | None = None  # 유튜브만
     indicator_value: str | None = None  # 금리 탭만
     details: list[CardDetail] | None = None  # 정형 공시만 (이슈 #18)
+    link_sentence: str | None = None  # 금리 탭만 — 카드별 "내 종목엔" 문장
 
 
 class CardListResponse(BaseModel):
     tab: str
     market: str
     stock_code: str
-    link_sentence: str | None = None  # 금리 탭만, 목록 위 1회 (F-6.2)
+    link_sentence: str | None = None  # 금리 탭만, 목록 위 1회 (F-6.2). 최신 카드 기준, 하위호환용
     disclaimer: bool = False  # 유튜브만 true — "참고용 · 개인 의견입니다" 고정 노출 근거 (F-6.3)
     reason: str | None = None  # 빈 목록 사유: no_data | fetch_failed (F-6.4)
     items: list[Card]

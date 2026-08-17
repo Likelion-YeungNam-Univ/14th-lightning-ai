@@ -173,6 +173,7 @@ def test_cards_tab_slot_rules(client):
     assert item["label"] is None and item["summary_short"] is None
     assert item["thumbnail_url"] and item["channel_name"] and item["view_count"] == 999_999
     assert item["card_id"] and item["is_saved"] is False and item["origin_url"]
+    assert item["link_sentence"] is None  # 금리 탭 아님 — 카드별 문장도 null
 
     # 공시: display 유형만 노출 + 라벨·요약·정형 슬롯 채움 (이슈 #18)
     dis = client.get("/cards", params={"tab": "disclosure", "stock_code": "111110"}).json()
@@ -189,6 +190,8 @@ def test_cards_tab_slot_rules(client):
     assert bok["link_sentence"] == "금리가 오르면 이자 부담이 커지는 경향이 있어요."
     assert bok["items"][0]["indicator_value"] == "2.75%"
     assert bok["items"][0]["label"] is None and bok["items"][0]["summary_short"]
+    # 요구사항 변경 — 카드별 link_sentence도 같은 문장(카드가 1건뿐이라 최상단과 동일)
+    assert bok["items"][0]["link_sentence"] == "금리가 오르면 이자 부담이 커지는 경향이 있어요."
 
     # 해외 종목: fed·regulation 정상, market 응답 확인
     fed = client.get("/cards", params={"tab": "fed", "stock_code": "TSLA"}).json()
@@ -196,6 +199,50 @@ def test_cards_tab_slot_rules(client):
     reg = client.get("/cards", params={"tab": "regulation", "stock_code": "TSLA"}).json()
     assert any(c["title"] == "Vehicle Safety Rule" for c in reg["items"])
     assert reg["items"][0]["source_name"] == "Federal Register"
+
+
+def test_cards_link_sentence_per_card(client):
+    """이슈 #44 — 카드마다 자신의 지표 스냅샷 기준 문장을 받는다(F-6.2 확장, 최상단 값과 무관)."""
+    from app.db import SessionLocal
+    from app.models import RateLinkSentence
+    from app.services.industry import seed_form_types
+
+    with SessionLocal() as db:
+        seed_form_types(db)
+        _seed_card_data(db)
+
+        # 111110 업종(etc)에 대해 '동결' 버전의 두 번째 bok 카드 + 캐시 문장 추가 시드
+        from app.collectors.base import upsert_source_item
+        from app.deps import utcnow
+
+        frozen = upsert_source_item(
+            db,
+            tab="bok",
+            market="domestic",
+            source_key="card-bok-frozen",
+            title="한국은행 기준금리(동결)",
+            indicator_value="2.75%",
+            doc_type=None,
+            published_at=utcnow(),
+        )
+        db.add(
+            RateLinkSentence(
+                market="domestic",
+                tab="bok",
+                industry_key="etc",
+                indicator_version="2.75%|동결",
+                sentence="금리가 동결되면 큰 변화가 없을 가능성이 커요.",
+            )
+        )
+        db.commit()
+        frozen_id = frozen.id
+
+    bok = client.get("/cards", params={"tab": "bok", "stock_code": "111110"}).json()
+    by_id = {c["card_id"]: c for c in bok["items"]}
+    assert by_id[frozen_id]["link_sentence"] == "금리가 동결되면 큰 변화가 없을 가능성이 커요."
+    other = next(c for cid, c in by_id.items() if cid != frozen_id)
+    assert other["link_sentence"] == "금리가 오르면 이자 부담이 커지는 경향이 있어요."
+    assert by_id[frozen_id]["link_sentence"] != other["link_sentence"]
 
 
 def test_cards_empty_reasons(client):
