@@ -265,6 +265,102 @@ class TermCache(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class BettingRoom(Base):
+    """C-4, C-10 — 커뮤니티 탭 베팅방. market 컬럼 없음 — stock_code가 구분을 결정한다."""
+
+    __tablename__ = "betting_room"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    stock_code: Mapped[str] = mapped_column(ForeignKey("stock_master.stock_code"), index=True)
+    creator_session_id: Mapped[str] = mapped_column(ForeignKey("session.id"))
+    title: Mapped[str] = mapped_column(String(120))
+    target_price: Mapped[int] = mapped_column(Integer)  # 1,000원 단위 (C-4.1.4)
+    judge_date: Mapped[date] = mapped_column(Date)
+    body: Mapped[str | None] = mapped_column(Text)
+    # open(판가름 전) | pending(정산 재시도 중) | closed(정산 완료) | void(무효)
+    status: Mapped[str] = mapped_column(String(8), default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime)
+    result_side: Mapped[str | None] = mapped_column(String(8))  # up | down
+    settle_attempts: Mapped[int] = mapped_column(Integer, default=0)  # C-6.2.6 재시도 카운터
+    settle_close_price: Mapped[int | None] = mapped_column(Integer)  # 정산 근거 (C-12)
+
+
+class BettingRoomAttachment(Base):
+    """C-4.2 — 방 본문 첨부(사진 여러 장 또는 저장 카드 1개)."""
+
+    __tablename__ = "betting_room_attachment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("betting_room.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(8))  # image | card
+    image_url: Mapped[str | None] = mapped_column(Text)
+    saved_card_id: Mapped[int | None] = mapped_column(ForeignKey("saved_card.id"))
+
+
+class BettingEntry(Base):
+    """C-6.1 — 베팅 참여. 1인 1회(room_id+session_id 유니크, C-6.1.2)."""
+
+    __tablename__ = "betting_entry"
+    __table_args__ = (
+        UniqueConstraint("room_id", "session_id", name="uq_betting_entry_room_session"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("betting_room.id", ondelete="CASCADE"), index=True
+    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("session.id"))
+    side: Mapped[str] = mapped_column(String(8))  # up(간다) | down(안 간다)
+    amount: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class RoomComment(Base):
+    """C-7 — 베팅방 댓글."""
+
+    __tablename__ = "room_comment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("betting_room.id", ondelete="CASCADE"), index=True
+    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("session.id"))
+    body: Mapped[str] = mapped_column(String(300))
+    saved_card_id: Mapped[int | None] = mapped_column(ForeignKey("saved_card.id"))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class PointLedger(Base):
+    """C-8.3 — 포인트 원장. 잔액은 항상 이 테이블의 합계로 계산한다(컬럼으로 들고 있지 않음)."""
+
+    __tablename__ = "point_ledger"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("session.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # charge/bet/win/refund/exchange
+    amount: Mapped[int] = mapped_column(Integer)  # 적립은 양수, 차감은 음수
+    ref_type: Mapped[str | None] = mapped_column(String(16))  # room/gifticon 등
+    ref_id: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class GifticonOrder(Base):
+    """C-9 — 기프티콘 교환 이력. 시연 범위는 발급 완료 화면까지(C-9.1.5, 더미 코드)."""
+
+    __tablename__ = "gifticon_order"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("session.id"), index=True)
+    points_used: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16))  # issued | failed
+    issued_code: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class EventLog(Base):
     """F-8.2 — 지표 이벤트 (부록 D 산출용)."""
 
