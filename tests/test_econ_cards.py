@@ -44,7 +44,7 @@ class FakeSearchLLM:
         self.outputs = list(outputs)
         self.calls = 0
 
-    def generate_with_search(self, *, system, user, schema, name="output"):
+    def generate_with_search(self, *, system, user, schema, name="output", max_tool_calls=5):
         self.calls += 1
         assert self.outputs, "예상보다 많은 LLM 호출"
         return self.outputs.pop(0)

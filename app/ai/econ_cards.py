@@ -107,12 +107,20 @@ def auto_filter(card: dict) -> list[str]:
 
 
 def generate_one(db: Session, client: OpenAIClient, batch_id: str) -> EconCard | None:
-    """카드 1건 생성 + 자동 필터. 검색 5회 초과 시 그 건은 버린다(None, E-2.1a-2)."""
+    """카드 1건 생성 + 자동 필터.
+
+    검색 상한은 요청 자체(`max_tool_calls`)에 걸어 과금을 원천 차단하고(승래 리뷰),
+    아래 카운트 확인은 방어적으로 남겨둔다 — API가 상한을 안 지켰을 경우의 안전망이다.
+    """
     system = ECON_CARD_SYSTEM.format(domains=", ".join(_allowed_domains()))
     user = ECON_CARD_USER_TMPL.format(recent_titles="\n".join(_recent_titles(db)) or "(없음)")
     try:
         data, search_count = client.generate_with_search(
-            system=system, user=user, schema=ECON_CARD_SCHEMA, name="econ_card"
+            system=system,
+            user=user,
+            schema=ECON_CARD_SCHEMA,
+            name="econ_card",
+            max_tool_calls=MAX_SEARCHES_PER_CARD,
         )
     except LLMError as e:
         logger.warning("경제카드 생성 실패: %s", e)
