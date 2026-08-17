@@ -33,6 +33,18 @@ def _job_daily() -> None:
             logger.warning("AI 생성 배치 실패: %s", e)
 
 
+def _job_econ_rotation() -> None:
+    from app.ai.econ_cards import rotate
+    from app.db import SessionLocal
+
+    with SessionLocal() as db:
+        try:
+            logger.info("econ card rotation: %s", rotate(db))
+        except Exception as e:
+            db.rollback()
+            logger.warning("econ card rotation 실패: %s", e)
+
+
 def _job_weekly_corp_codes() -> None:
     from app.collectors.dart import sync_corp_codes
     from app.db import SessionLocal
@@ -50,5 +62,7 @@ def start_scheduler() -> None:
     scheduler.add_job(
         _job_weekly_corp_codes, "cron", day_of_week="mon", hour=5, minute=30, id="corp_codes"
     )
+    # E-5.2 — 짝수 시 정각마다 노출 세트 교체
+    scheduler.add_job(_job_econ_rotation, "cron", hour="*/2", minute=0, id="econ_rotation")
     scheduler.start()
-    logger.info("scheduler started (daily 06:00 / mon 05:30 KST)")
+    logger.info("scheduler started (daily 06:00 / mon 05:30 / econ rotation 2h KST)")
