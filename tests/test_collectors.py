@@ -155,7 +155,12 @@ def test_dart_failure_isolated(client, monkeypatch):
 
 
 @respx.mock
-def test_briefing_ministry_and_keyword_filter(client, monkeypatch):
+def test_briefing_keyword_filter_ignores_unmapped_ministry(client, monkeypatch):
+    """F-4.2.2(v3 갱신) — 1차 필터는 산업 키워드. 부처 매핑에 없어도 키워드가 맞으면 통과한다.
+
+    조직개편으로 부처명이 바뀌어도(B003의 '우주항공청'처럼 매핑표에 없는 이름) 업종
+    규제 탭이 조용히 비지 않는다는 걸 보장하는 회귀 테스트(이슈 #42).
+    """
     monkeypatch.setattr("app.collectors.briefing.SLEEP_BETWEEN", 0)
     calls = {"n": 0}
 
@@ -172,7 +177,9 @@ def test_briefing_ministry_and_keyword_filter(client, monkeypatch):
         stats = sync_regulations(db)
         assert stats["chunks"] == 31  # 양끝 포함 91일 ÷ 3일 청크 (API 날짜 범위 제한)
         assert stats["scanned"] == 3
-        assert stats["matched"] == 1  # B002는 키워드 무관, B003은 부처 미매핑
+        # B002만 제외(키워드 무관). B003은 부처 매핑에 없는 '우주항공청'이지만
+        # 제목에 '반도체' 키워드가 있어 이제는 매칭된다(이전엔 부처 필터에서 먼저 버려졌음).
+        assert stats["matched"] == 2
 
         item = (
             db.query(SourceItem)
@@ -182,6 +189,13 @@ def test_briefing_ministry_and_keyword_filter(client, monkeypatch):
         assert item.title == "반도체 특별법 시행령 개정안 입법예고"
         assert "반도체 산업 지원" in item.content  # HTML 태그 제거된 본문
         assert db.get(CollectStatus, ("regulation", "domestic")).status == "ok"
+
+        unmapped_item = (
+            db.query(SourceItem)
+            .filter(SourceItem.tab == "regulation", SourceItem.source_key == "B003")
+            .one()
+        )
+        assert unmapped_item.title == "매핑에 없는 부처의 반도체 관련 발표"
 
 
 @respx.mock
