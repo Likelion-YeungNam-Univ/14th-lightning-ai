@@ -1,8 +1,15 @@
-"""C-1~C-4 — 커뮤니티 탭 베팅방. 열람은 무인증, 생성은 로그인 필요(C-1.4, C-4.1)."""
+"""C-1~C-4·C-7 — 커뮤니티 탭 베팅방·댓글. 열람은 무인증, 쓰기는 로그인 필요."""
 
 from fastapi import APIRouter
 
 from app.deps import AuthSession, DbDep
+from app.schemas.comments import (
+    CommentCreateRequest,
+    CommentCreateResponse,
+    CommentDeleteResponse,
+    CommentItem,
+    CommentListResponse,
+)
 from app.schemas.rooms import (
     BettingEntryRequest,
     BettingEntryResponse,
@@ -13,6 +20,7 @@ from app.schemas.rooms import (
     RoomListResponse,
 )
 from app.services import betting as betting_service
+from app.services import comments as comment_service
 from app.services import rooms as room_service
 
 router = APIRouter(tags=["rooms"])
@@ -54,3 +62,24 @@ def create_entry(
 ) -> BettingEntryResponse:
     room = betting_service.place_entry(db, session, room_id, side=body.side, amount=body.amount)
     return BettingEntryResponse(room=RoomDetailResponse(**room))
+
+
+@router.get("/rooms/{room_id}/comments", response_model=CommentListResponse)
+def list_comments(room_id: int, db: DbDep) -> CommentListResponse:
+    items = comment_service.list_comments(db, room_id)
+    return CommentListResponse(items=[CommentItem(**c) for c in items])
+
+
+@router.post("/rooms/{room_id}/comments", response_model=CommentCreateResponse)
+def create_comment(
+    room_id: int, body: CommentCreateRequest, session: AuthSession, db: DbDep
+) -> CommentCreateResponse:
+    item = comment_service.create_comment(
+        db, session, room_id, body=body.body, saved_card_id=body.saved_card_id
+    )
+    return CommentCreateResponse(item=CommentItem(**item))
+
+
+@router.delete("/comments/{comment_id}", response_model=CommentDeleteResponse)
+def delete_comment(comment_id: int, session: AuthSession, db: DbDep) -> CommentDeleteResponse:
+    return CommentDeleteResponse(removed=comment_service.delete_comment(db, session, comment_id))

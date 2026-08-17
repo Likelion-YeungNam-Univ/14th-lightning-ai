@@ -12,6 +12,7 @@ from app.routers import (
     cards,
     econ_cards,
     events,
+    gifticons,
     health,
     markets,
     me_stocks,
@@ -57,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(cards.router)
     app.include_router(econ_cards.router)
     app.include_router(saved.router)
+    app.include_router(gifticons.router)
     app.include_router(terms.router)
     app.include_router(events.router)
     app.include_router(admin.router)
