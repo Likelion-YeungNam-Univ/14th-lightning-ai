@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class EconCardSource(BaseModel):
@@ -31,15 +31,14 @@ class EconCardDetailResponse(BaseModel):
 
 
 class EconCardGenerateRequest(BaseModel):
-    count: int = 10
+    count: int = Field(default=10, ge=1, le=20)  # 무제한 값이면 비용·시간이 통제 밖으로 나간다
 
 
-class EconCardGenerateResponse(BaseModel):
+class EconCardGenerateAcceptedResponse(BaseModel):
+    """BackgroundTasks로 처리 — 결과 통계는 로그로 확인(202, 승래 리뷰 반영)."""
+
     batch_id: str
-    requested: int
-    filtered: int
-    rejected: int
-    discarded: int
+    status: Literal["accepted"] = "accepted"
 
 
 class EconCardPatchRequest(BaseModel):

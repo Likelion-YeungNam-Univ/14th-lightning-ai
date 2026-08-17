@@ -22,7 +22,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.ai.guardrail import find_absolute_claims, find_any_numbers, find_violations
-from app.ai.llm_client import LLMError, OpenAIClient
+from app.ai.llm_client import LLMError, OpenAIClient, get_llm_client
 from app.ai.prompts import ECON_CARD_SCHEMA, ECON_CARD_SYSTEM, ECON_CARD_USER_TMPL
 from app.models import EconCard, EconRotation
 
@@ -160,6 +160,22 @@ def generate_batch(
             stats["rejected"] += 1
     logger.info("econ card batch %s: %s", batch_id, stats)
     return stats
+
+
+def generate_batch_background(count: int, batch_id: str) -> None:
+    """BackgroundTasks 진입점(E-7, 승래 리뷰) — 요청 세션과 분리된 자체 DB 세션을 쓴다.
+
+    120건 생성은 수 분 걸릴 수 있어 관리자 요청을 오래 붙잡지 않는다. 결과는 반환하지
+    않고 로그로만 남긴다 — 호출부는 202 + batch_id만 즉시 받는다.
+    """
+    from app.db import SessionLocal
+
+    with SessionLocal() as db:
+        try:
+            client = get_llm_client()
+            generate_batch(db, client, count, batch_id=batch_id)
+        except LLMError as e:
+            logger.warning("econ card batch %s 실패: %s", batch_id, e)
 
 
 def review_sample(db: Session, batch_id: str) -> list[EconCard]:

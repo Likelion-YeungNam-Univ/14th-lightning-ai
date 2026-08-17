@@ -1,17 +1,18 @@
+import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, BackgroundTasks, Header, Response
 
 from app.ai import econ_cards as econ_ai
-from app.ai.llm_client import get_llm_client
+from app.ai.llm_client import LLMError, get_llm_client
 from app.config import settings
 from app.deps import CurrentSession, DbDep
 from app.errors import AppError
 from app.models import EconCard
 from app.schemas.econ_cards import (
+    EconCardGenerateAcceptedResponse,
     EconCardGenerateRequest,
-    EconCardGenerateResponse,
     EconCardPatchRequest,
     EconCardPatchResponse,
 )
@@ -37,15 +38,26 @@ def reset_demo_endpoint(
     return ResetDemoResponse(**reset_demo(db, session))
 
 
-@router.post("/admin/econ-cards/generate", response_model=EconCardGenerateResponse)
+@router.post("/admin/econ-cards/generate", response_model=EconCardGenerateAcceptedResponse)
 def generate_econ_cards_endpoint(
-    body: EconCardGenerateRequest, db: DbDep, x_admin_token: AdminToken = None
-) -> EconCardGenerateResponse:
-    """E-7 — 배치 트리거. 사용자 요청 경로가 아니라 관리자 조작이라 LLM 호출이 허용된다."""
+    body: EconCardGenerateRequest,
+    background: BackgroundTasks,
+    response: Response,
+    x_admin_token: AdminToken = None,
+) -> EconCardGenerateAcceptedResponse:
+    """E-7 — 배치 트리거. 120건 생성은 수 분 걸릴 수 있어 BackgroundTasks로 즉시 202를
+    반환한다(승래 리뷰) — 관리자 조작이라 LLM 호출 자체는 허용된다(불변식 1 예외 아님,
+    사용자 요청 경로가 아니므로).
+    """
     _check_admin_token(x_admin_token)
-    client = get_llm_client()
-    stats = econ_ai.generate_batch(db, client, body.count)
-    return EconCardGenerateResponse(**stats)
+    try:  # 설정 누락은 배치에 던지지 않고 여기서 즉시 503으로 알린다(승래 리뷰)
+        get_llm_client()
+    except LLMError as e:
+        raise AppError("llm_unavailable", str(e), 503) from e
+    batch_id = str(uuid.uuid4())
+    background.add_task(econ_ai.generate_batch_background, body.count, batch_id)
+    response.status_code = 202
+    return EconCardGenerateAcceptedResponse(batch_id=batch_id)
 
 
 @router.patch("/admin/econ-cards/{card_id}", response_model=EconCardPatchResponse)

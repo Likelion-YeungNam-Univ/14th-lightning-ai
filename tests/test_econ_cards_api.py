@@ -124,11 +124,25 @@ def test_generate_endpoint_triggers_batch(client, login_env):
     respx.post("https://api.openai.com/v1/responses").mock(return_value=Response(200, json=payload))
     respx.head("https://krx.co.kr/x").mock(return_value=Response(200))
 
+    with SessionLocal() as db:
+        _clear_econ(db)
+
+    # BackgroundTasks — 요청 자체는 즉시 202(승래 리뷰), TestClient는 응답 후 동기 실행한다
     r = client.post("/admin/econ-cards/generate", json={"count": 1}, headers=ADMIN_HEADERS)
-    assert r.status_code == 200
+    assert r.status_code == 202
     body = r.json()
-    assert body["filtered"] == 1
-    assert body["rejected"] == 0
+    assert body["status"] == "accepted" and body["batch_id"]
+
+    with SessionLocal() as db:
+        card = db.query(EconCard).filter(EconCard.batch_id == body["batch_id"]).one()
+        assert card.status == "filtered"
+
+
+def test_generate_endpoint_rejects_out_of_range_count(client, login_env):
+    r = client.post("/admin/econ-cards/generate", json={"count": 21}, headers=ADMIN_HEADERS)
+    assert r.status_code == 422
+    r = client.post("/admin/econ-cards/generate", json={"count": 0}, headers=ADMIN_HEADERS)
+    assert r.status_code == 422
 
 
 def test_patch_approve_reject_lock_unlock(client, login_env):

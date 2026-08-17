@@ -14,7 +14,12 @@ def current_rotation(db: Session) -> tuple[list[EconCard], object]:
     last = db.query(EconRotation).order_by(EconRotation.rotated_at.desc()).first()
     if last is None or not last.card_ids:
         return [], None
-    cards = db.query(EconCard).filter(EconCard.id.in_(last.card_ids)).all()
+    # 회전은 승인 카드만 뽑지만(E-5.6), 조회 시에도 status='approved'를 명시해 방어한다(승래 리뷰)
+    cards = (
+        db.query(EconCard)
+        .filter(EconCard.id.in_(last.card_ids), EconCard.status == "approved")
+        .all()
+    )
     by_id = {c.id: c for c in cards}
     ordered = [by_id[i] for i in last.card_ids if i in by_id]  # 회전 당시 순서 유지
     return ordered, last.rotated_at
