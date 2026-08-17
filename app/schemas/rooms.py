@@ -51,3 +51,12 @@ class RoomCreateResponse(BaseModel):
 
 class ChartSymbolResponse(BaseModel):
     symbol: str  # C-2.1.1 — 예: KRX:005930 / NASDAQ:NVDA
+
+
+class BettingEntryRequest(BaseModel):
+    side: str  # up(간다) | down(안 간다)
+    amount: int = Field(ge=100, le=1000)  # C-6.1.3
+
+
+class BettingEntryResponse(BaseModel):
+    room: RoomDetailResponse

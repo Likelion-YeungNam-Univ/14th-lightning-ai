@@ -2,6 +2,7 @@
 
 일 06:00 KST: 종목 마스터 → 전체 수집(공시·유튜브·규제·금리·정리)을 한 체인으로.
 주 1회(월 05:30): DART corp_code 매핑 갱신 — 신규 상장 반영이면 충분하다.
+18:00·19:00·20:00 KST: 베팅방 자동 정산(C-6.2.4) — 종가 미확보 재시도(C-6.2.6).
 """
 
 import logging
@@ -45,10 +46,23 @@ def _job_weekly_corp_codes() -> None:
             logger.warning("corp_code sync 실패: %s", e)
 
 
+def _job_settle_rooms() -> None:
+    from app.db import SessionLocal
+    from app.services.settlement import sync_settle_rooms
+
+    with SessionLocal() as db:
+        try:
+            logger.info("room settlement: %s", sync_settle_rooms(db))
+        except Exception as e:
+            db.rollback()
+            logger.warning("베팅방 정산 실패: %s", e)
+
+
 def start_scheduler() -> None:
     scheduler.add_job(_job_daily, "cron", hour=6, minute=0, id="daily_collect")
     scheduler.add_job(
         _job_weekly_corp_codes, "cron", day_of_week="mon", hour=5, minute=30, id="corp_codes"
     )
+    scheduler.add_job(_job_settle_rooms, "cron", hour="18,19,20", minute=0, id="settle_rooms")
     scheduler.start()
-    logger.info("scheduler started (daily 06:00 / mon 05:30 KST)")
+    logger.info("scheduler started (daily 06:00 / mon 05:30 / settle 18-20:00 KST)")

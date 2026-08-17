@@ -1,10 +1,8 @@
 """C-1~C-4, C-10 — 커뮤니티 탭 베팅방 도메인 로직.
 
-포인트 잔액 검증·차감, 정산은 이슈 #32(C-6, C-8) 범위 — 여기서는 생성자 자동
-참여(C-4.1.2)로 BettingEntry 행만 만들고 포인트는 건드리지 않는다.
 목표가 ±50% 범위 검증(C-4.1.4 제안)은 "사용자 요청 경로에서 외부 API를 부르지
-않는다"(불변식 1)와 충돌한다 — 실시간 현재가 조회 수단이 없어 이번 이슈에서는
-구조적 검증(양수·정수)까지만 하고, 범위 검증은 보류한다(PR 설명 참고).
+않는다"(불변식 1)와 충돌한다 — 실시간 현재가 조회 수단이 없어 구조적 검증(1,000원
+단위)까지만 하고, 범위 검증은 보류한다(PR 설명 참고).
 """
 
 import json
@@ -17,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.errors import AppError
 from app.models import MARKET_DOMESTIC, BettingEntry, BettingRoom, StockMaster, UserSession
+from app.services.points import add_ledger_entry, balance
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
@@ -150,6 +149,8 @@ def create_room(
     if stock.market == MARKET_DOMESTIC and target_price % 1000 != 0:
         raise AppError("invalid_target_price", "목표가는 1,000원 단위여야 합니다", 400)
     _validate_judge_date(judge_date_, today)
+    if amount > balance(db, session.id):  # C-6.1.3 — 생성자 자동 참여도 실제 베팅이다
+        raise AppError("insufficient_points", "보유 포인트가 부족합니다", 400)
 
     # 중복 방 차단 (C-4.1.5) — 같은 종목·목표가·판가름 날짜의 진행 중인 방
     dup = (
@@ -207,5 +208,6 @@ def create_room(
     db.add(room)
     db.flush()  # room.id 확보
     db.add(BettingEntry(room_id=room.id, session_id=session.id, side="up", amount=amount))
+    add_ledger_entry(db, session.id, "bet", -amount, ref_type="room", ref_id=room.id)
     db.commit()
     return get_room(db, room.id)

@@ -14,6 +14,7 @@ from app.routers import (
     health,
     markets,
     me_stocks,
+    points,
     rooms,
     saved,
     sessions,
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(stocks.router)
     app.include_router(me_stocks.router)
     app.include_router(rooms.router)
+    app.include_router(points.router)
     app.include_router(cards.router)
     app.include_router(saved.router)
     app.include_router(terms.router)
