@@ -1,0 +1,20 @@
+{
+  "_comment": "C-2.1.1 — 해외 화이트리스트 종목의 TradingView 심볼용 거래소 코드. stock_master 스키마를 건드리지 않기 위해(기존 컬럼 재사용 시 이미 'US'로 채워져 있어 구분 불가) 데이터 파일로 별도 관리한다. 목록 밖 티커는 기본값 NASDAQ으로 처리(app/services/rooms.py).",
+  "exchanges": {
+    "TSLA": "NASDAQ",
+    "AAPL": "NASDAQ",
+    "NVDA": "NASDAQ",
+    "MSFT": "NASDAQ",
+    "GOOGL": "NASDAQ",
+    "AMZN": "NASDAQ",
+    "META": "NASDAQ",
+    "NFLX": "NASDAQ",
+    "AVGO": "NASDAQ",
+    "AMD": "NASDAQ",
+    "INTC": "NASDAQ",
+    "LLY": "NYSE",
+    "KO": "NYSE",
+    "SBUX": "NASDAQ",
+    "JPM": "NYSE"
+  }
+}
