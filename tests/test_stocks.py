@@ -1,7 +1,7 @@
 """F-3.3~3.7 종목 관리 API 테스트."""
 
 from app.services import stocks as stock_service
-from tests.conftest import DEFAULT_CODES
+from tests.conftest import DEFAULT_CODES, OVERSEAS_DEFAULT_CODES
 
 
 def _login(client):
@@ -39,7 +39,8 @@ def test_search_overseas_alias_and_unsupported(client):
     assert [i["stock_code"] for i in r.json()["items"]] == ["AAPL"]
 
     # 화이트리스트 밖 유명 해외 종목 → 오타가 아니라 미지원임을 알린다 (F-3.3.1)
-    r = client.get("/stocks/search", params={"q": "엔비디아", "market": "overseas"})
+    # (엔비디아는 이제 해외 기본 종목이라 정상 검색되므로, 여전히 미지원인 종목으로 검증)
+    r = client.get("/stocks/search", params={"q": "팔란티어", "market": "overseas"})
     assert r.json() == {"items": [], "reason": "unsupported_overseas"}
 
     # 그냥 없는 검색어 → 일반 빈 결과
@@ -61,7 +62,7 @@ def test_popular(client):
     assert "111115" not in codes  # 우선주 제외
 
     r = client.get("/stocks/popular", params={"market": "overseas"})
-    assert [i["stock_code"] for i in r.json()] == ["AAPL", "TSLA"]
+    assert [i["stock_code"] for i in r.json()] == ["AAPL", "GOOGL", "MSFT", "NVDA", "TSLA"]
 
 
 def test_my_stocks_requires_session(client):
@@ -97,18 +98,24 @@ def test_add_delete_flow(client, login_env):
     assert r.status_code == 400
     assert r.json()["code"] == "unknown_stock"
 
+    # 해외는 비로그인 때부터 이미 고정 기본 4종이 채워져 있다(QA 리포트 반영)
+    assert [
+        i["stock_code"]
+        for i in client.get("/me/stocks", params={"market": "overseas"}).json()["items"]
+    ] == OVERSEAS_DEFAULT_CODES
+
     # 해외 종목 추가 — 구분이 응답으로 내려간다
     r = client.post("/me/stocks", json={"stock_codes": ["TSLA"]})
     assert r.json()["added"][0]["market"] == "overseas"
     assert [
         i["stock_code"]
         for i in client.get("/me/stocks", params={"market": "overseas"}).json()["items"]
-    ] == ["TSLA"]
+    ] == OVERSEAS_DEFAULT_CODES + ["TSLA"]
 
     # 삭제 — 해당 구분의 남은 개수 반환 (F-3.6)
     assert client.delete("/me/stocks/555550").json() == {"remaining": 4}
     assert client.delete("/me/stocks/555550").status_code == 404
-    assert client.delete("/me/stocks/TSLA").json() == {"remaining": 0}
+    assert client.delete("/me/stocks/TSLA").json() == {"remaining": 4}  # 해외 기본 4종은 남음
 
 
 def test_add_limit_per_market(client, login_env, monkeypatch):

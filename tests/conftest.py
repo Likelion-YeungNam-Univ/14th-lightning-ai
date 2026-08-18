@@ -39,8 +39,12 @@ DOMESTIC_SEED = [
 OVERSEAS_SEED = [
     ("TSLA", "테슬라", ["tesla", "테슬라"]),
     ("AAPL", "애플", ["apple", "애플"]),
+    ("NVDA", "엔비디아", ["nvidia", "엔비디아"]),
+    ("GOOGL", "알파벳(구글)", ["google", "구글", "알파벳"]),
+    ("MSFT", "마이크로소프트", ["microsoft", "마이크로소프트"]),
 ]
 DEFAULT_CODES = ["111110", "222220", "333330", "444440"]  # 시총 상위 4 보통주
+OVERSEAS_DEFAULT_CODES = ["NVDA", "AAPL", "GOOGL", "MSFT"]  # 해외 고정 기본 종목
 
 
 def _seed_stocks() -> None:
