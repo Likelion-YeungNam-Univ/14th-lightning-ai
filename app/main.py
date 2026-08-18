@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -23,6 +24,11 @@ from app.routers import (
     stocks,
     terms,
 )
+
+# 운영 서버에서 배치·수집·스케줄러 INFO 로그가 보이도록 (기본 WARNING이면 전부 버려진다).
+# httpx는 요청 URL에 API 키가 실리므로 WARNING 유지 — 키가 로그에 남지 않게.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 @asynccontextmanager
