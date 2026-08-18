@@ -143,6 +143,38 @@ def test_explain_validation(client, monkeypatch):
     ratelimit.reset()
     monkeypatch.setattr("app.routers.terms.get_llm_client", lambda: FakeRagLLM([]))
     assert _post_term(client, "가" * 51).json()["code"] == "term_too_long"
+
+
+def test_explain_concurrent_cache_insert_does_not_500(client, monkeypatch):
+    """실 배포에서 재현된 버그 — 같은 (term, tab)을 동시에 두 요청이 캐시 미스로 보고
+    둘 다 LLM 생성 후 INSERT하면 나중 커밋이 UniqueViolation으로 500이 났었다.
+    LLM 호출 도중(다른 요청이 먼저 커밋한 것처럼) 같은 키를 직접 꽂아 재현한다."""
+    ratelimit.reset()
+    with SessionLocal() as db:
+        _seed_chunks(db)
+        db.query(TermCache).delete()
+        db.commit()
+
+    class RacingLLM(FakeRagLLM):
+        def generate_json(self, **kwargs):
+            # "동시 요청"이 우리보다 먼저 같은 키로 커밋해버린 상황을 흉내낸다
+            with SessionLocal() as other_db:
+                other_db.add(
+                    TermCache(term="콜금리", tab="bok", explanation="다른 요청이 먼저 캐시함")
+                )
+                other_db.commit()
+            return super().generate_json(**kwargs)
+
+    fake = RacingLLM([{"explanation": "콜금리는 금융기관 간 초단기 금리예요."}])
+    monkeypatch.setattr("app.routers.terms.get_llm_client", lambda: fake)
+
+    r = _post_term(client, "콜금리")
+    assert r.status_code == 200  # 500이 아니라 정상 응답
+    assert r.json()["explanation"] == "콜금리는 금융기관 간 초단기 금리예요."
+
+    with SessionLocal() as db:
+        row = db.get(TermCache, ("콜금리", "bok"))
+        assert row is not None  # 먼저 커밋된 쪽이 캐시에 남아있다
     assert _post_term(client, "   ").json()["code"] == "invalid_term"
     assert _post_term(client, "PER", tab="news").json()["code"] == "invalid_tab"
 
