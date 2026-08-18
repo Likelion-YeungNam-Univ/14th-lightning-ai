@@ -1,6 +1,6 @@
 """F-7 — 저장 카드 API. POST/DELETE는 로그인 필수(F-1.3), GET은 세션 필요."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.deps import AuthSession, CurrentSession, DbDep
 from app.models import SavedCard
@@ -28,8 +28,17 @@ def _to_item(row: SavedCard, stock_name: str | None) -> SavedCardItem:
 
 
 @router.get("/me/saved-cards", response_model=SavedCardListResponse)
-def list_saved(session: CurrentSession, db: DbDep, stock_code: str | None = None):
-    """F-7.4·F-7.5 — 국내·해외 통합, 최근 저장 순, ?stock_code= 필터."""
+def list_saved(
+    session: CurrentSession,
+    db: DbDep,
+    stock_code: str | None = None,
+    for_: str | None = Query(default=None, alias="for"),
+):
+    """F-7.4·F-7.5 — 국내·해외 통합, 최근 저장 순, ?stock_code= 필터.
+
+    ?for=attachment(C-5.1)는 베팅방 자료 카드 첨부 선택창이 쓰는 것과 같은
+    엔드포인트임을 프론트에 알리는 표식일 뿐, 조회 범위는 동일하다(C-5.1.1).
+    """
     rows = saved_service.list_saved(db, session, stock_code)
     return SavedCardListResponse(items=[_to_item(row, name) for row, name in rows])
 

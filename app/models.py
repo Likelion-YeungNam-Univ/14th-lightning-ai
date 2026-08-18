@@ -367,6 +367,9 @@ class RoomComment(Base):
     saved_card_id: Mapped[int | None] = mapped_column(
         ForeignKey("saved_card.id", ondelete="SET NULL")
     )
+    # 첨부 시점 저장 카드 스냅샷 복사본(승래 리뷰 B-3) — saved_card_id는 참고용일 뿐,
+    # 화면 렌더는 항상 이 컬럼만 쓴다. 원본이 저장 해제돼도 첨부 내용은 안 바뀐다(C-5.1.3)
+    snapshot_json: Mapped[dict | None] = mapped_column(JSON)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
