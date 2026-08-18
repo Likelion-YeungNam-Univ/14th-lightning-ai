@@ -29,6 +29,9 @@ def test_markets_with_session(client):
     m = _markets(client)
     assert m["domestic"]["stock_count"] == 4
     assert m["domestic"]["last_stock_code"] is None  # 아직 아무 카드도 안 봄
+    # 비로그인이어도 해외 탭에 고정 기본 4종이 채워진다(QA 리포트 반영)
+    assert m["overseas"]["stock_count"] == 4
+    assert m["overseas"]["reason"] is None
 
 
 def test_cards_rejects_invalid_requests(client):

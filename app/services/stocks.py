@@ -19,6 +19,9 @@ from app.models import (
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
 DEFAULT_STOCK_COUNT = 4  # F-3.8
+# 해외는 시가총액 미수집이라 F-3.8의 "시총 상위 4"를 그대로 못 쓴다 — 인지도 기준
+# 고정 4종으로 확정(명세확정사항 §12, QA 리포트 반영). 화이트리스트 안에서만 고른다
+OVERSEAS_DEFAULT_CODES = ["NVDA", "AAPL", "GOOGL", "MSFT"]
 POPULAR_STOCK_COUNT = 8  # 확정사항 7절
 STOCK_LIMIT_PER_MARKET = 10  # F-3.5 — v3 갱신(2026-08-16): 30 → 10, 구분별
 MIN_QUERY_LEN_NAME = 2  # 확정: 이름 2자, 코드(숫자 시작) 1자
@@ -125,6 +128,21 @@ def pick_default_stocks(db: Session) -> list[StockMaster]:
         .limit(DEFAULT_STOCK_COUNT)
         .all()
     )
+
+
+def pick_default_overseas_stocks(db: Session) -> list[StockMaster]:
+    """비로그인 사용자도 해외 탭 진입 시 바로 볼 수 있게 고정 4종을 준다(F-2.3 보완).
+
+    시총 데이터가 없어 F-3.8과 같은 방식은 못 쓴다 — OVERSEAS_DEFAULT_CODES 순서 유지.
+    """
+    rows = {
+        s.stock_code: s
+        for s in db.query(StockMaster).filter(
+            StockMaster.market == MARKET_OVERSEAS,
+            StockMaster.stock_code.in_(OVERSEAS_DEFAULT_CODES),
+        )
+    }
+    return [rows[code] for code in OVERSEAS_DEFAULT_CODES if code in rows]
 
 
 def list_my_stocks(db: Session, session: UserSession, market: str) -> list[tuple]:
