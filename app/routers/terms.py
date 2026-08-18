@@ -5,6 +5,7 @@
 """
 
 from fastapi import APIRouter, Request
+from sqlalchemy.exc import IntegrityError
 
 from app.ai.llm_client import LLMError, get_llm_client
 from app.ai.term_explain import TAB_DESC, generate_term_explanation
@@ -59,7 +60,12 @@ def explain_term(
 
     if result["explanation"]:  # 실패(빈 값)는 캐시하지 않는다 — 다음 시도에 기회를 준다
         db.add(TermCache(term=term, tab=body.tab, explanation=result["explanation"]))
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # 같은 (term, tab)을 동시에 두 요청이 캐시 미스로 판단해 동시에 LLM을 부른 경우 —
+            # 먼저 커밋된 쪽이 이기고, 이 요청은 그 결과를 그대로 쓴다(둘 다 같은 값이라 무관)
+            db.rollback()
 
     return TermExplainResponse(
         term=term,
