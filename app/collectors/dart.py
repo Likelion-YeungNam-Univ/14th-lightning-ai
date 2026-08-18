@@ -30,7 +30,12 @@ logger = logging.getLogger(__name__)
 CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 DISCLOSURE_WINDOW_DAYS = 90  # 최근 3개월 (F-4.1)
-DISCLOSURES_PER_STOCK = 20  # 종목당 최신 20건 (F-4.1)
+# DART list.json 자체가 최신순이라, 여기서 적게 가져오면 노출 필터(display=true) 이전에
+# 임원·주요주주 소유상황보고서 같은 고빈도 노이즈가 진짜 공시 자리를 다 차지해버린다
+# (QA 재현 — 삼성전자 90일치 31건 중 30건이 노이즈, 화면엔 1건만 노출됨).
+# 100은 DART list API의 페이지당 상한 — 여기서 넉넉히 받아와 노출 필터가 고르게 한다
+# (명세확정사항 §14, 2026-08-18 갱신 — F-4.1의 기존 "20건"에서 조정).
+DISCLOSURES_PER_STOCK = 100
 
 
 def fetch_corp_code_map() -> dict[str, str]:
