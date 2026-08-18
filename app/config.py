@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # 커뮤니티 탭 결제 (C-8.2.0) — 토스페이먼츠 테스트 키. 라이브 키는 붙이지 않는다
     toss_secret_key: str = ""
     toss_client_key: str = ""
+    # 댓글 작성자 익명 태그(HMAC 키, 승래 리뷰 B-1) — session_id를 응답에 직접 싣지 않기 위함
+    session_tag_secret: str = ""
     session_ttl_days: int = 30  # F-1.1
     enable_scheduler: bool = False  # 로컬 개발 기본 off, 배포 환경에서 true
     # 프론트 로컬 개발용 CORS 허용 출처(쉼표 구분). 배포는 Vercel rewrite 프록시(동일 출처)라 불필요

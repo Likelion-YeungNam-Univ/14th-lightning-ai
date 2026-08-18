@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.deps import AuthSession, DbDep
+from app.deps import AuthSession, DbDep, OptionalSession
 from app.schemas.comments import (
     CommentCreateRequest,
     CommentCreateResponse,
@@ -65,8 +65,9 @@ def create_entry(
 
 
 @router.get("/rooms/{room_id}/comments", response_model=CommentListResponse)
-def list_comments(room_id: int, db: DbDep) -> CommentListResponse:
-    items = comment_service.list_comments(db, room_id)
+def list_comments(room_id: int, session: OptionalSession, db: DbDep) -> CommentListResponse:
+    viewer_id = session.id if session is not None else None
+    items = comment_service.list_comments(db, room_id, viewer_id)
     return CommentListResponse(items=[CommentItem(**c) for c in items])
 
 

@@ -48,5 +48,18 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         return JSONResponse(
             status_code=422,
-            content=_body("validation_error", "요청 형식이 올바르지 않습니다", exc.errors()),
+            content=_body("validation_error", "요청 형식이 올바르지 않습니다", _safe_errors(exc)),
         )
+
+
+def _safe_errors(exc: RequestValidationError) -> list[dict]:
+    """커스텀 `field_validator`가 ValueError를 던지면 pydantic이 ctx.error에 그 예외
+    객체를 그대로 담아 JSON 직렬화가 깨진다 — 문자열로 바꿔서 응답 가능하게 만든다."""
+    errors = []
+    for e in exc.errors():
+        e = dict(e)
+        ctx = e.get("ctx")
+        if isinstance(ctx, dict) and "error" in ctx:
+            e["ctx"] = {**ctx, "error": str(ctx["error"])}
+        errors.append(e)
+    return errors
