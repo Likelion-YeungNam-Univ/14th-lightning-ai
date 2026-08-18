@@ -7,8 +7,10 @@
 - ApproveDate 형식 `MM/DD/YYYY HH24:MI:SS`
 - 인증키는 포털이 URL 인코딩된 값을 주므로 디코딩 후 사용(이중 인코딩 방지)
 
-부처 1차 필터 → 산업 키워드 2차 필터. 이미지·사진 URL은 저장·노출하지 않는다(공공누리).
-본문 텍스트는 요약 입력용으로만 content에 보관한다 (확정사항 6절).
+산업 키워드로 1차 매칭한다 — 부처(MinisterCode)를 1차 필터로 쓰지 않는다(F-4.2.2, v3 갱신).
+정부조직 개편으로 부처명이 바뀌면 부처 매핑이 먼저 깨져 탭이 조용히 빈다. 부처명은 매핑표
+갱신 필요 여부를 진단하는 참고 정보로만 로그에 남긴다(V1 대조용). 이미지·사진 URL은
+저장·노출하지 않는다(공공누리). 본문 텍스트는 요약 입력용으로만 content에 보관한다.
 """
 
 import html
@@ -84,17 +86,13 @@ def _fetch_chunk(start: datetime, end: datetime) -> list[ET.Element]:
 
 
 def sync_regulations(db: Session) -> dict:
-    """부처 발표를 업종 단위로 적재. 매핑 없는 업종은 조회하지 않는다(F-4.2.1)."""
+    """산업 키워드로 업종 단위 적재. 부처는 필터가 아니라 매핑표 진단용 참고 정보(F-4.2.2)."""
     agencies = (
         db.query(IndustryAgency)
         .filter(IndustryAgency.market == MARKET_DOMESTIC, IndustryAgency.industry_key != "etc")
         .all()
     )
-    # 부처명 → 업종 목록 역인덱스 (한 부처가 여러 업종 소관)
-    by_ministry: dict[str, list[IndustryAgency]] = {}
-    for ind in agencies:
-        for name in ind.agencies:
-            by_ministry.setdefault(name, []).append(ind)
+    known_ministries = {name for ind in agencies for name in ind.agencies}
 
     stats = {"chunks": 0, "scanned": 0, "matched": 0}
     unmatched: dict[str, int] = {}
@@ -112,18 +110,16 @@ def sync_regulations(db: Session) -> dict:
 
             for news in news_items:
                 ministry = (news.findtext("MinisterCode") or "").strip()
-                candidates = by_ministry.get(ministry)
-                if not candidates:
-                    if ministry:
-                        unmatched[ministry] = unmatched.get(ministry, 0) + 1
-                    continue
+                if ministry and ministry not in known_ministries:
+                    # 필터링엔 안 쓴다 — 매핑표(data/*.json) 갱신 필요 여부만 진단(V1)
+                    unmatched[ministry] = unmatched.get(ministry, 0) + 1
 
                 title = _strip_html(news.findtext("Title"))
                 body = _strip_html(news.findtext("DataContents"))
                 text = f"{title} {body}"
-                hit = [ind for ind in candidates if any(kw in text for kw in ind.keywords)]
+                hit = [ind for ind in agencies if any(kw in text for kw in ind.keywords)]
                 if not hit or not title:
-                    continue  # 부처는 소관이지만 산업 키워드 무관 — 버린다
+                    continue  # 산업 키워드 무관 — 버린다
 
                 item = upsert_source_item(
                     db,

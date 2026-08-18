@@ -3,6 +3,7 @@
 일 06:00 KST: 종목 마스터 → 전체 수집(공시·유튜브·규제·금리·정리)을 한 체인으로.
 주 1회(월 05:30): DART corp_code 매핑 갱신 — 신규 상장 반영이면 충분하다.
 18:00·19:00·20:00 KST: 베팅방 자동 정산(C-6.2.4) — 종가 미확보 재시도(C-6.2.6).
+짝수 시 정각(2h): 경제 상식 카드 노출 세트 회전(E-5.2).
 """
 
 import logging
@@ -32,6 +33,18 @@ def _job_daily() -> None:
         except Exception as e:
             db.rollback()
             logger.warning("AI 생성 배치 실패: %s", e)
+
+
+def _job_econ_rotation() -> None:
+    from app.ai.econ_cards import rotate
+    from app.db import SessionLocal
+
+    with SessionLocal() as db:
+        try:
+            logger.info("econ card rotation: %s", rotate(db))
+        except Exception as e:
+            db.rollback()
+            logger.warning("econ card rotation 실패: %s", e)
 
 
 def _job_weekly_corp_codes() -> None:
@@ -64,5 +77,9 @@ def start_scheduler() -> None:
         _job_weekly_corp_codes, "cron", day_of_week="mon", hour=5, minute=30, id="corp_codes"
     )
     scheduler.add_job(_job_settle_rooms, "cron", hour="18,19,20", minute=0, id="settle_rooms")
+    # E-5.2 — 짝수 시 정각마다 노출 세트 교체
+    scheduler.add_job(_job_econ_rotation, "cron", hour="*/2", minute=0, id="econ_rotation")
     scheduler.start()
-    logger.info("scheduler started (daily 06:00 / mon 05:30 / settle 18-20:00 KST)")
+    logger.info(
+        "scheduler started (daily 06:00 / mon 05:30 / settle 18-20:00 / econ rotation 2h KST)"
+    )
