@@ -6,14 +6,14 @@
 """
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from functools import lru_cache
 from pathlib import Path
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.deps import today_kst
+from app.deps import KST_OFFSET, today_kst
 from app.errors import AppError
 from app.models import MARKET_DOMESTIC, BettingEntry, BettingRoom, StockMaster, UserSession
 from app.services.points import add_ledger_entry, balance, lock_session
@@ -189,12 +189,16 @@ def create_room(
         raise AppError(
             "room_limit_exceeded", f"동시 진행 방은 최대 {MAX_OPEN_ROOMS_PER_CREATOR}개입니다", 400
         )
+    # created_at은 DB 시각(UTC), today는 KST — 날짜 비교 대신 KST 하루를 UTC 구간으로 환산해 비교
+    # (그냥 func.date()==today면 KST 00~09시에 전날 생성분이 빠져 한도가 리셋된다 — CI 실패 원인)
+    day_start_utc = datetime.combine(today, time.min) - KST_OFFSET
     today_count = (
         db.query(func.count())
         .select_from(BettingRoom)
         .filter(
             BettingRoom.creator_session_id == session.id,
-            func.date(BettingRoom.created_at) == today,
+            BettingRoom.created_at >= day_start_utc,
+            BettingRoom.created_at < day_start_utc + timedelta(days=1),
         )
         .scalar()
     )

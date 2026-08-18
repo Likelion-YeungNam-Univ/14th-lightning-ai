@@ -313,3 +313,55 @@ def test_chart_symbol(client):
 
     r = client.get("/stocks/UNKNOWN999/chart-symbol")
     assert r.status_code == 404
+
+
+def test_daily_limit_across_kst_midnight(client, login_env):
+    """KST 00~09시: created_at(UTC)은 전날, today(KST)는 오늘 — 한도가 리셋되면 안 된다.
+
+    func.date(created_at) == today 비교가 이 구간에서 0건으로 계산돼 CI가 그 시간대에 실패했음.
+    """
+    from datetime import datetime
+
+    from app.models import BettingRoom, PointLedger
+    from app.services.sessions import ensure_session
+
+    with SessionLocal() as db:
+        session, _ = ensure_session(db, None)
+        session.authenticated = True
+        db.add(PointLedger(session_id=session.id, kind="charge", amount=10_000))
+        db.commit()
+        kst_today = date(2026, 8, 19)  # KST 08:00 상황
+        utc_now = datetime(2026, 8, 18, 23, 0)  # 같은 순간의 UTC = 전날 23시
+        jd = _add_business_days(kst_today, 5)
+        for i in range(5):
+            room = create_room(
+                db,
+                session,
+                stock_code="333330",
+                title=f"r{i}",
+                target_price=10000 + i * 1000,
+                judge_date_=jd,
+                body=None,
+                amount=100,
+                today=kst_today,
+            )
+            r = db.get(BettingRoom, room["id"])
+            r.status = "closed"
+            r.created_at = utc_now  # DB가 UTC로 찍은 것처럼
+            db.commit()
+        try:
+            create_room(
+                db,
+                session,
+                stock_code="333330",
+                title="6th",
+                target_price=20000,
+                judge_date_=jd,
+                body=None,
+                amount=100,
+                today=kst_today,
+            )
+        except Exception as e:
+            assert getattr(e, "code", None) == "room_daily_limit_exceeded"
+        else:
+            raise AssertionError("KST 자정 넘긴 구간에서 한도가 리셋됨")
