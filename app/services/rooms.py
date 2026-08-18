@@ -6,16 +6,17 @@
 """
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.deps import today_kst
 from app.errors import AppError
 from app.models import MARKET_DOMESTIC, BettingEntry, BettingRoom, StockMaster, UserSession
-from app.services.points import add_ledger_entry, balance
+from app.services.points import add_ledger_entry, balance, lock_session
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 
@@ -107,8 +108,10 @@ def _to_list_item(room: BettingRoom, agg: dict) -> dict:
 def list_rooms(db: Session, stock_code: str, status: str | None) -> list[dict]:
     """C-3.1 — 종목별 방 목록, 판가름 날짜 가까운 순(C-3.1.1)."""
     query = db.query(BettingRoom).filter(BettingRoom.stock_code == stock_code)
-    query = query.filter(BettingRoom.status == status) if status else query.filter(
-        BettingRoom.status == "open"
+    query = (
+        query.filter(BettingRoom.status == status)
+        if status
+        else query.filter(BettingRoom.status == "open")
     )  # C-3.1.2 — 기본은 open만
     rooms = query.order_by(BettingRoom.judge_date.asc()).all()
     return [_to_list_item(r, _room_aggregates(db, r.id)) for r in rooms]
@@ -140,8 +143,11 @@ def create_room(
     amount: int,
     today: date | None = None,
 ) -> dict:
-    """C-4.1 — 방 생성. 생성자는 자기 목표가 방향(up)에 자동 참여한다(C-4.1.2)."""
-    today = today or datetime.now().date()
+    """C-4.1 — 방 생성. 생성자는 자기 목표가 방향(up)에 자동 참여한다(C-4.1.2).
+
+    날짜 기준은 KST(승래 리뷰 B-5) — 컨테이너가 UTC로 떠도 하루 한도가 안 어긋난다.
+    """
+    today = today or today_kst()
     stock = db.get(StockMaster, stock_code)
     if stock is None:
         raise AppError("unknown_stock", "존재하지 않는 종목코드입니다", 400)
@@ -149,7 +155,8 @@ def create_room(
     if stock.market == MARKET_DOMESTIC and target_price % 1000 != 0:
         raise AppError("invalid_target_price", "목표가는 1,000원 단위여야 합니다", 400)
     _validate_judge_date(judge_date_, today)
-    if amount > balance(db, session.id):  # C-6.1.3 — 생성자 자동 참여도 실제 베팅이다
+    locked = lock_session(db, session.id)  # B-4 — 확인·차감 사이 경합 차단
+    if amount > balance(db, locked.id):  # C-6.1.3 — 생성자 자동 참여도 실제 베팅이다
         raise AppError("insufficient_points", "보유 포인트가 부족합니다", 400)
 
     # 중복 방 차단 (C-4.1.5) — 같은 종목·목표가·판가름 날짜의 진행 중인 방

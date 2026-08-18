@@ -1,7 +1,8 @@
 """공통 의존성 — DB 세션, 사용자 세션(쿠키), 인증 게이트(F-1.3)."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, Request
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from app.errors import AppError
 from app.models import UserSession
 
 COOKIE_NAME = "assit_session"
+_KST = ZoneInfo("Asia/Seoul")
 
 DbDep = Annotated[Session, Depends(get_db)]
 
@@ -18,6 +20,20 @@ DbDep = Annotated[Session, Depends(get_db)]
 def utcnow() -> datetime:
     """DB DateTime 컬럼이 naive이므로 naive UTC로 통일한다."""
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def now_kst() -> datetime:
+    """서버 컨테이너 타임존과 무관하게 KST 벽시계 시각(naive)을 돌려준다.
+
+    베팅 마감(C-6.1.4)·정산 배치 기준일처럼 "한국 시간 몇 시"가 의미인 값은
+    컨테이너가 UTC로 떠도 어긋나면 안 된다(승래 리뷰 B-5) — naive로 맞춰서
+    같은 naive 값끼리만 비교하는 이 프로젝트의 다른 datetime과 섞어도 안전하다.
+    """
+    return datetime.now(_KST).replace(tzinfo=None)
+
+
+def today_kst() -> date:
+    return now_kst().date()
 
 
 def get_current_session(request: Request, db: DbDep) -> UserSession:
