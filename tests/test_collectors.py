@@ -501,6 +501,113 @@ def test_dart_detail_enrichment(client, monkeypatch):
         assert "임원ㆍ주요주주특정증권등소유상황보고서" not in codes
 
 
+@respx.mock
+def test_dart_detail_enrichment_remaining_three_types(client, monkeypatch):
+    """QA 확인 요청 — 실 데이터로 아직 못 본 나머지 3종(무상증자·감자·소송)도
+    정형 API 필드가 정확히 슬롯으로 뽑히는지 검증한다. 나머지 3종(자기주식취득·
+    자기주식처분·유상증자)은 각각 다른 테스트/실 DB로 이미 확인됨."""
+    from app.services.industry import seed_form_types
+
+    monkeypatch.setattr("app.collectors.base.time.sleep", lambda _s: None)
+    respx.get(host="opendart.fss.or.kr", path="/api/list.json").mock(
+        return_value=Response(
+            200,
+            json={
+                "status": "000",
+                "list": [
+                    {
+                        "rcept_no": "fr-1",
+                        "report_nm": "주요사항보고서(무상증자결정)",
+                        "rcept_dt": "20260812",
+                    },
+                    {
+                        "rcept_no": "cr-1",
+                        "report_nm": "주요사항보고서(감자결정)",
+                        "rcept_dt": "20260812",
+                    },
+                    {
+                        "rcept_no": "lg-1",
+                        "report_nm": "주요사항보고서(소송등의제기)",
+                        "rcept_dt": "20260812",
+                    },
+                ],
+            },
+        )
+    )
+    respx.get(host="opendart.fss.or.kr", path="/api/fricDecsn.json").mock(
+        return_value=Response(
+            200,
+            json={
+                "status": "000",
+                "list": [
+                    {
+                        "rcept_no": "fr-1",
+                        "nstk_ostk_cnt": "10,000,000",
+                        "nstk_ascnt_ps_ostk": "0.5",
+                        "nstk_asstd": "2026년 09월 01일",
+                    }
+                ],
+            },
+        )
+    )
+    respx.get(host="opendart.fss.or.kr", path="/api/crDecsn.json").mock(
+        return_value=Response(
+            200,
+            json={
+                "status": "000",
+                "list": [
+                    {
+                        "rcept_no": "cr-1",
+                        "crstk_ostk_cnt": "5,000,000",
+                        "cr_rt_ostk": "50%",
+                        "cr_mth": "주식병합",
+                    }
+                ],
+            },
+        )
+    )
+    respx.get(host="opendart.fss.or.kr", path="/api/lwstLg.json").mock(
+        return_value=Response(
+            200,
+            json={
+                "status": "000",
+                "list": [
+                    {
+                        "rcept_no": "lg-1",
+                        "icnm": "특허침해금지 청구의 소",
+                        "ac_ap": "홍길동 외 2인",
+                        "lgd": "2026년 08월 10일",
+                    }
+                ],
+            },
+        )
+    )
+    with SessionLocal() as db:
+        seed_form_types(db)
+        stock = db.query(StockMaster).filter_by(stock_code="222220").one()
+        stock.corp_code = "C-DET2"
+        db.commit()
+        from app.collectors.dart import sync_disclosures
+
+        stats = sync_disclosures(db, [stock])
+        assert stats["failed"] == 0
+
+        free = db.query(SourceItem).filter_by(source_key="fr-1").one()
+        assert free.doc_type == "무상증자결정"
+        assert {"label": "신주 수(보통주)", "value": "10,000,000주"} in free.detail_json["slots"]
+        assert {"label": "1주당 신주 배정", "value": "0.5주"} in free.detail_json["slots"]
+
+        cr = db.query(SourceItem).filter_by(source_key="cr-1").one()
+        assert cr.doc_type == "감자결정"
+        assert {"label": "감자 주식 수(보통주)", "value": "5,000,000주"} in cr.detail_json["slots"]
+        assert {"label": "감자 방법", "value": "주식병합"} in cr.detail_json["slots"]
+
+        lg = db.query(SourceItem).filter_by(source_key="lg-1").one()
+        assert lg.doc_type == "소송등의제기"
+        assert {"label": "사건명", "value": "특허침해금지 청구의 소"} in lg.detail_json["slots"]
+        assert {"label": "원고·신청인", "value": "홍길동 외 2인"} in lg.detail_json["slots"]
+
+
 def test_detail_fields_feed_summary_input(client):
     """정형 필드가 요약 입력에 들어가 숫자 가드레일(F-5.1.3)과 정합한다."""
     from tests.test_ai import GOOD, FakeLLM
