@@ -7,8 +7,10 @@
 - **User-Agent 헤더 필수**(없으면 차단), 요청 한도 초당 10회 → 종목 간 0.15s 간격.
 """
 
+import html
 import json
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 
@@ -22,10 +24,11 @@ from app.collectors.base import (
 )
 from app.config import settings
 from app.deps import utcnow
-from app.models import MARKET_OVERSEAS, StockMaster
+from app.models import MARKET_OVERSEAS, SourceItem, StockMaster
 from app.services.industry import (
     DATA_DIR,
     load_overseas_industries,
+    load_sec_form_items,
     seed_form_types,
     seed_overseas_industries,
 )
@@ -38,6 +41,21 @@ TARGET_FORMS = ("8-K", "10-Q", "10-K", "6-K")  # 확정사항 3절
 WINDOW_DAYS = 90  # 최근 3개월 (국내 공시와 동일)
 DISCLOSURES_PER_STOCK = 20
 SLEEP_BETWEEN = 0.15  # 초당 10회 한도 준수
+COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
+# 이슈 #53 — 8-K 첫 Item 문단은 SEC 서식상 정형 요약(실측 본문 3KB, 첫 문단에 핵심). 상한 400자
+EIGHT_K_SNIPPET_CHARS = 400
+_TAG_RE = re.compile(r"<[^>]+>")
+_ITEM_HEAD_RE = re.compile(r"Item\s+\d\.\d\d\.?\s*", re.I)
+# companyfacts에서 슬롯으로 쓰는 개념 — (라벨, 후보 개념 순서, 단위)
+FINANCIAL_SLOTS = (
+    (
+        "매출",
+        ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet"),
+        "USD",
+    ),
+    ("순이익", ("NetIncomeLoss",), "USD"),
+    ("주당순이익(희석)", ("EarningsPerShareDiluted",), "USD/shares"),
+)
 
 
 def _headers() -> dict:
@@ -97,6 +115,82 @@ def sync_overseas_master(db: Session) -> dict:
     return stats
 
 
+def _eight_k_snippet(origin_url: str) -> str | None:
+    """8-K 본문 첫 Item 문단(≤400자). 실패해도 요약은 items·해설로 진행되므로 None 허용."""
+    try:
+        page = get_with_retry(origin_url, headers=_headers(), timeout=20).text
+    except Exception as e:  # 본문 없이도 카드는 유효
+        logger.info("8-K 본문 조회 실패 %s: %s", origin_url, e)
+        return None
+    text = re.sub(r"\s+", " ", html.unescape(_TAG_RE.sub(" ", page)))
+    m = _ITEM_HEAD_RE.search(text)
+    body = text[m.end() :] if m else text
+    body = _ITEM_HEAD_RE.split(body)[0]  # 다음 Item 전까지
+    body = body.strip()
+    return body[:EIGHT_K_SNIPPET_CHARS] if len(body) >= 40 else None
+
+
+def _fmt_money(value: float, unit: str) -> str:
+    if unit == "USD/shares":
+        return f"${value:,.2f}"
+    if abs(value) >= 1e9:
+        return f"${value / 1e9:,.1f}B"
+    if abs(value) >= 1e6:
+        return f"${value / 1e6:,.1f}M"
+    return f"${value:,.0f}"
+
+
+def _period_matches_form(row: dict, form: str) -> bool:
+    """10-Q는 분기(80~100일), 10-K는 연간(350~380일) 기간 값만. 시점값(start 없음)은 통과."""
+    start, end = row.get("start"), row.get("end")
+    if not start or not end:
+        return True
+    days = (datetime.strptime(end, "%Y-%m-%d") - datetime.strptime(start, "%Y-%m-%d")).days
+    return 80 <= days <= 100 if form == "10-Q" else 350 <= days <= 380
+
+
+def _fetch_financial_slots(cik: str) -> dict[str, list[dict]]:
+    """companyfacts → 접수번호(accn)별 재무 슬롯. 10-Q/10-K 카드에 붙는다 (이슈 #53).
+
+    실측: RevenueFromContractWithCustomerExcludingAssessedTax·NetIncomeLoss·EPS가 accn과 1:1.
+    같은 accn에 여러 기간 값이 있으면 종료일(end)이 가장 늦은 것을 쓴다.
+    """
+    try:
+        facts = get_with_retry(COMPANYFACTS_URL.format(cik=cik), headers=_headers(), timeout=60)
+        gaap = facts.json().get("facts", {}).get("us-gaap", {})
+    except Exception as e:
+        logger.info("companyfacts 조회 실패 CIK%s: %s", cik, e)
+        return {}
+
+    # accn → label → (end, value). 실측: 같은 10-Q·같은 fp=Q3에 분기(3개월)와 누적(9개월) 행이
+    # 함께 있어 fp로는 구분 불가 → start~end 기간 길이로 분기(≈90일)/연간(≈365일)만 채택
+    by_accn: dict[str, dict[str, tuple[str, float]]] = {}
+    for label, concepts, unit in FINANCIAL_SLOTS:
+        for concept in concepts:
+            rows = gaap.get(concept, {}).get("units", {}).get(unit) or []
+            for row in rows:
+                form, accn = row.get("form"), row.get("accn")
+                if not accn or form not in ("10-Q", "10-K"):
+                    continue
+                if not _period_matches_form(row, form):
+                    continue
+                slot = by_accn.setdefault(accn, {})
+                prev = slot.get(label)
+                if prev is None or row["end"] > prev[0]:
+                    slot[label] = (row["end"], float(row["val"]))
+            # 후보 개념을 전부 훑는다 — 실측: 애플은 Revenues가 옛 공시에만 있고 최신은
+            # RevenueFromContract…에만 있어, 첫 개념에서 멈추면 최신 매출이 빠진다
+
+    unit_of = {label: unit for label, _c, unit in FINANCIAL_SLOTS}
+    return {
+        accn: [
+            {"label": label, "value": _fmt_money(val, unit_of[label])}
+            for label, (_end, val) in slots.items()
+        ]
+        for accn, slots in by_accn.items()
+    }
+
+
 def sync_sec_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
     """F-4.6 — 화이트리스트 종목 공시. 대상 폼 8-K·10-Q·10-K·6-K, 종목 단위 격리(F-4.9)."""
     stats = {"stocks": 0, "items": 0, "failed": 0, "no_cik": 0}
@@ -109,6 +203,8 @@ def sync_sec_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
         try:
             sub = get_with_retry(SUBMISSIONS_URL.format(cik=stock.cik), headers=_headers()).json()
             recent = sub["filings"]["recent"]
+            item_names = load_sec_form_items()
+            financial_slots: dict[str, list[dict]] | None = None  # 필요할 때 1회만 조회
             count = 0
             for i in range(len(recent["form"])):
                 form = recent["form"][i]
@@ -119,6 +215,47 @@ def sync_sec_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
                     break
                 accession = recent["accessionNumber"][i]
                 doc = recent["primaryDocument"][i]
+                origin_url = (
+                    f"https://www.sec.gov/Archives/edgar/data/{int(stock.cik)}/"
+                    f"{accession.replace('-', '')}/{doc}"
+                )
+                existing = (
+                    db.query(SourceItem)
+                    .filter_by(tab="disclosure", market=MARKET_OVERSEAS, source_key=accession)
+                    .one_or_none()
+                )
+                content, detail_json = (
+                    (existing.content, existing.detail_json) if existing else (None, None)
+                )
+                if content is None:  # 요약 입력 — 이미 채운 건은 재조회하지 않는다(멱등·호출 절약)
+                    lines: list[str] = []
+                    if form == "8-K":
+                        codes = [
+                            c.strip()
+                            for c in (
+                                (recent.get("items") or [None] * len(recent["form"]))[i] or ""
+                            ).split(",")
+                            if c.strip()
+                        ]
+                        names = [f"{item_names.get(c, '기타')}({c})" for c in codes]
+                        if names:
+                            lines.append("사안: " + ", ".join(names))
+                        snippet = _eight_k_snippet(origin_url)
+                        time.sleep(SLEEP_BETWEEN)
+                        if snippet:
+                            lines.append(f"본문 요지(영문): {snippet}")
+                    elif form in ("10-Q", "10-K"):
+                        if financial_slots is None:
+                            financial_slots = _fetch_financial_slots(stock.cik)
+                            time.sleep(SLEEP_BETWEEN)
+                        slots = financial_slots.get(accession) or []
+                        if slots:
+                            detail_json = {"slots": slots}
+                            lines.append(
+                                "재무 수치: "
+                                + ", ".join(f"{s['label']} {s['value']}" for s in slots)
+                            )
+                    content = "\n".join(lines) or None
                 item = upsert_source_item(
                     db,
                     tab="disclosure",
@@ -128,10 +265,9 @@ def sync_sec_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
                     title=(recent["primaryDocDescription"][i] or form).strip(),
                     doc_type=form,
                     published_at=datetime.strptime(filed, "%Y-%m-%d"),
-                    origin_url=(
-                        f"https://www.sec.gov/Archives/edgar/data/{int(stock.cik)}/"
-                        f"{accession.replace('-', '')}/{doc}"
-                    ),
+                    origin_url=origin_url,
+                    content=content,
+                    detail_json=detail_json,
                 )
                 ensure_stock_link(db, item.id, stock.stock_code)
                 count += 1

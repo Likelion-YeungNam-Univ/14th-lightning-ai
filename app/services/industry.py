@@ -150,3 +150,10 @@ def dart_classification_codes() -> tuple[list[str], list[str]]:
     specific = sorted((r["form_code"] for r in rows if not r.get("wrapper")), key=len, reverse=True)
     wrappers = sorted((r["form_code"] for r in rows if r.get("wrapper")), key=len, reverse=True)
     return specific, wrappers
+
+
+@lru_cache(maxsize=1)
+def load_sec_form_items() -> dict[str, str]:
+    """이슈 #53 — 8-K Item 코드 → 한국어 사안명 매핑."""
+    with open(DATA_DIR / "sec_form_items.json", encoding="utf-8") as f:
+        return json.load(f)["items"]

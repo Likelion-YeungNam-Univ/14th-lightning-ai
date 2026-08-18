@@ -1,6 +1,6 @@
 """공통 의존성 — DB 세션, 사용자 세션(쿠키), 인증 게이트(F-1.3)."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
@@ -13,6 +13,7 @@ from app.models import UserSession
 
 COOKIE_NAME = "assit_session"
 _KST = ZoneInfo("Asia/Seoul")
+KST_OFFSET = timedelta(hours=9)  # naive UTC(DB) ↔ KST 날짜 경계 환산용
 
 DbDep = Annotated[Session, Depends(get_db)]
 
