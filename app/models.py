@@ -382,6 +382,9 @@ class PointLedger(Base):
     amount: Mapped[int] = mapped_column(Integer)  # 적립은 양수, 차감은 음수
     ref_type: Mapped[str | None] = mapped_column(String(16))  # room/gifticon 등
     ref_id: Mapped[int | None] = mapped_column(Integer)
+    # 토스 order_id 등 외부 결제 참조키 — charge 멱등성 가드(unique, 승래 리뷰 B-3).
+    # NULL은 유니크 제약에서 여러 개 허용되므로 charge 이외 kind는 그대로 비워둔다
+    ref_key: Mapped[str | None] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

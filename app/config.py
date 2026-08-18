@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     mock_login_id: str = ""
     mock_login_pw: str = ""
     admin_token: str = ""
+
+    # 커뮤니티 탭 결제 (C-8.2.0) — 토스페이먼츠 테스트 키. 라이브 키는 붙이지 않는다
+    toss_secret_key: str = ""
+    toss_client_key: str = ""
     session_ttl_days: int = 30  # F-1.1
     enable_scheduler: bool = False  # 로컬 개발 기본 off, 배포 환경에서 true
     # 프론트 로컬 개발용 CORS 허용 출처(쉼표 구분). 배포는 Vercel rewrite 프록시(동일 출처)라 불필요

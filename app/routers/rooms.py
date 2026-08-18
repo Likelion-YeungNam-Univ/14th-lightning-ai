@@ -4,12 +4,15 @@ from fastapi import APIRouter
 
 from app.deps import AuthSession, DbDep
 from app.schemas.rooms import (
+    BettingEntryRequest,
+    BettingEntryResponse,
     ChartSymbolResponse,
     RoomCreateRequest,
     RoomCreateResponse,
     RoomDetailResponse,
     RoomListResponse,
 )
+from app.services import betting as betting_service
 from app.services import rooms as room_service
 
 router = APIRouter(tags=["rooms"])
@@ -43,3 +46,11 @@ def create_room(body: RoomCreateRequest, session: AuthSession, db: DbDep) -> Roo
 @router.get("/stocks/{stock_code}/chart-symbol", response_model=ChartSymbolResponse)
 def chart_symbol(stock_code: str, db: DbDep) -> ChartSymbolResponse:
     return ChartSymbolResponse(symbol=room_service.get_chart_symbol(db, stock_code))
+
+
+@router.post("/rooms/{room_id}/entries", response_model=BettingEntryResponse)
+def create_entry(
+    room_id: int, body: BettingEntryRequest, session: AuthSession, db: DbDep
+) -> BettingEntryResponse:
+    room = betting_service.place_entry(db, session, room_id, side=body.side, amount=body.amount)
+    return BettingEntryResponse(room=RoomDetailResponse(**room))
