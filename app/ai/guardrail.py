@@ -61,6 +61,24 @@ def find_unsourced_numbers(text: str | None, source: str) -> list[str]:
     return bad
 
 
+# E-3.1.4 — "~하면 반드시 ~한다"류 단정적 인과. "대개/~인 경우가 많아요"로 완화하게 한다.
+_ABSOLUTE_CLAIM = re.compile(r"반드시|무조건|예외\s*없이")
+
+
+def find_absolute_claims(text: str | None) -> bool:
+    """E-3.1.4 — 경제 상식 카드 전용. 단정적 인과 표현이 있으면 True."""
+    return bool(text) and bool(_ABSOLUTE_CLAIM.search(text))
+
+
+def find_any_numbers(text: str | None) -> bool:
+    """E-3.1.3 — 경제 상식 카드 전용. 출처 대조 없이 숫자 토큰 존재 자체를 차단한다.
+
+    카드는 승인 풀에 몇 주씩 머무르므로, 검색으로 확인한 값이라도 화면에 남으면
+    낡은 수치가 계속 돈다(F-5.1.3의 find_unsourced_numbers와 다른 기준).
+    """
+    return bool(text) and bool(_NUMBER_TOKEN.search(text))
+
+
 def find_stock_names(text: str | None, names: list[str]) -> list[str]:
     """F-5.3.1 — 연결 문장은 업종 단위: 종목명이 나오면 위반."""
     if not text:

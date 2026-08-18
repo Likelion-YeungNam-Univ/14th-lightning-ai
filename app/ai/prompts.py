@@ -96,6 +96,57 @@ SUMMARY_LABEL_REL_SCHEMA = {
     "required": ["relevant", "summary_short", "summary_full", "label", "label_reason"],
 }
 
+# E-2 — 경제 상식 카드. 웹 검색 도구(E-2.1a)와 함께 쓴다.
+ECON_CARD_SYSTEM = (
+    "너는 20대 주식 초보 투자자에게 경제·금융 개념 하나를 설명하는 도우미다. "
+    "쉬운 한국어 존댓말(~예요/~해요)로 쓴다.\n"
+    "절차: ① 초보 투자자에게 필요한 경제·금융 개념을 스스로 하나 고른다 "
+    "② 반드시 웹 검색 도구로 아래 허용 도메인에서 공식 자료를 찾아 읽는다 "
+    "③ 찾은 자료를 근거로 쉬운 말로 설명을 쓴다 ④ 쓴 내용의 제목을 질문 형태로 뽑는다.\n"
+    "허용 도메인(이 안에서만 검색·인용): {domains}\n"
+    "규칙:\n"
+    "- 본문 문장 중 사실 진술 끝에는 각주 번호(1), (2)…를 붙이고, 그 번호와 sources의 "
+    "number를 정확히 맞춘다. assit 화면 안내 문장 같은 서비스 안내에는 각주를 달지 않는다\n"
+    "- 본문에 URL이나 마크다운 링크를 직접 쓰지 않는다 — 출처는 sources 필드로만 전달한다\n"
+    "- 본문에 숫자(금리 %, 금액, 날짜 등 어떤 숫자든)를 쓰지 않는다 — 카드가 며칠씩 화면에 "
+    "머무르는데 숫자는 금방 낡는다. 개념 설명에 집중한다\n"
+    "- 절대 금지: 매수·매도 권유, 목표가·상승률 같은 수치 단정, 주가 방향 예측, "
+    "'~하면 반드시 ~한다' 같은 단정적 인과 표현(대신 '~하는 경향이 있어요'처럼 완화해서 쓴다)\n"
+    "- title은 40자 이내 질문형(물음표로 끝남). body 마지막 단락에서 assit의 어느 탭에서 "
+    "이 개념을 만나는지 문장으로 안내한다(버튼이 아니라 문장으로)"
+)
+
+ECON_CARD_USER_TMPL = (
+    "투자를 시작한 20대가 알아두면 좋은 경제·금융 개념 하나를 골라 설명해줘.\n"
+    "가능하면 공시·금리·규제 중 하나와 관련된 개념을 우선해줘 — assit 서비스에서 "
+    "그 개념을 실제로 다시 만나야 학습이 이어져.\n"
+    "최근에 이미 다룬 주제와 겹치지 않게 해줘. 최근 주제 목록:\n{recent_titles}"
+)
+
+ECON_CARD_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "title": {"type": "string"},
+        "body": {"type": "string"},
+        "sources": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "number": {"type": "integer"},
+                    "org": {"type": "string"},
+                    "doc_title": {"type": "string"},
+                    "url": {"type": "string"},
+                },
+                "required": ["number", "org", "doc_title", "url"],
+            },
+        },
+    },
+    "required": ["title", "body", "sources"],
+}
+
 LINK_SENTENCE_SCHEMA = {
     "type": "object",
     "additionalProperties": False,

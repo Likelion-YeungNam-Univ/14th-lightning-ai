@@ -1,0 +1,21 @@
+{
+  "_comment": "E-D2·부록1 — 경제 상식 카드 생성 시 검색·근거로 허용하는 도메인 목록(확정). 목록 밖 출처는 자동 반려(E-3.1.2). 코드 수정 없이 여기만 추가/삭제하면 됨.",
+  "domains": [
+    "bok.or.kr",
+    "fss.or.kr",
+    "fsc.go.kr",
+    "moef.go.kr",
+    "krx.co.kr",
+    "kostat.go.kr",
+    "dart.fss.or.kr",
+    "kcmi.re.kr",
+    "kdi.re.kr",
+    "kif.re.kr",
+    "federalreserve.gov",
+    "sec.gov",
+    "imf.org",
+    "worldbank.org",
+    "oecd.org",
+    "investor.gov"
+  ]
+}

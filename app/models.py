@@ -265,6 +265,39 @@ class TermCache(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class EconCard(Base):
+    """E-6 — 경제 상식 카드. status/locked로 검수 절차(E-3.3)가 동작한다.
+
+    target_tab 컬럼 없음 — 탭 바로가기 버튼을 없애고 본문 문장으로만 안내한다(E-4.4).
+    """
+
+    __tablename__ = "econ_card"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(80))  # 질문형, 40자 이내(E-2.4.1)
+    body: Mapped[str] = mapped_column(Text)  # 문장 단위 각주(¹²³) 포함
+    # [{"number":1,"org":"한국은행","doc_title":"...","url":"..."}] — 각주번호·기관명·문서제목·URL
+    sources: Mapped[list] = mapped_column(JSON)
+    batch_id: Mapped[str] = mapped_column(String(36), index=True)
+    # draft(생성 직후) -> filtered(자동필터 통과) -> approved(표본검수/배치승인) -> rejected
+    status: Mapped[str] = mapped_column(String(8), default="draft", index=True)
+    reject_reason: Mapped[str | None] = mapped_column(Text)
+    locked: Mapped[bool] = mapped_column(Boolean, default=False)  # 승인본 보호(E-3.3)
+    approved_by: Mapped[str | None] = mapped_column(String(64))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class EconRotation(Base):
+    """E-5.2 — 매시 노출 세트 기록. 직전 세트 회피(E-5.2.1)에 쓴다."""
+
+    __tablename__ = "econ_rotation"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    rotated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    card_ids: Mapped[list] = mapped_column(JSON)
+
+
 class BettingRoom(Base):
     """C-4, C-10 — 커뮤니티 탭 베팅방. market 컬럼 없음 — stock_code가 구분을 결정한다."""
 
