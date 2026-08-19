@@ -43,6 +43,29 @@ def test_mock_login_success_and_failure(client, login_env):
     assert client.post("/session").json()["authenticated"] is True
 
 
+def test_logout_clears_cookie_and_next_session_is_fresh(client, login_env):
+    """확정사항 16절 — F-1.2가 배제했던 로그아웃을 시연 편의로 추가."""
+    client.post("/session")
+    client.post("/auth/mock-login", json={"id": "demo", "password": "pw1234"})
+    assert client.post("/session").json()["authenticated"] is True
+
+    r = client.post("/auth/logout")
+    assert r.status_code == 200
+    assert r.json() == {"logged_out": True}
+    assert "assit_session" not in client.cookies
+
+    # 쿠키가 사라졌으니 다음 /session은 완전히 새 세션(비로그인)을 발급한다
+    fresh = client.post("/session")
+    assert fresh.json()["created"] is True
+    assert fresh.json()["authenticated"] is False
+
+
+def test_logout_requires_session(client, login_env):
+    r = client.post("/auth/logout")
+    assert r.status_code == 401
+    assert r.json()["code"] == "no_session"
+
+
 def test_login_not_configured(client, monkeypatch):
     monkeypatch.setattr(settings, "mock_login_id", "")
     client.post("/session")

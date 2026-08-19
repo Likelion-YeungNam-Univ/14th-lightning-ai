@@ -1,9 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 
 from app.config import settings
-from app.deps import CurrentSession, DbDep
+from app.deps import COOKIE_NAME, CurrentSession, DbDep
 from app.errors import AppError
-from app.schemas.sessions import LoginRequest, LoginResponse
+from app.schemas.sessions import LoginRequest, LoginResponse, LogoutResponse
 
 router = APIRouter(tags=["auth"])
 
@@ -22,3 +22,13 @@ def mock_login(body: LoginRequest, session: CurrentSession, db: DbDep) -> LoginR
     session.authenticated = True
     db.commit()
     return LoginResponse(authenticated=True)
+
+
+@router.post("/auth/logout", response_model=LogoutResponse)
+def logout(session: CurrentSession, response: Response) -> LogoutResponse:
+    """확정사항 16절 — F-1.2가 배제한 로그아웃을 시연 편의를 위해 추가.
+
+    세션 행은 지우지 않고 쿠키만 만료시킨다 — 다음 POST /session이 새 세션을 발급한다.
+    """
+    response.delete_cookie(COOKIE_NAME, samesite="lax")
+    return LogoutResponse(logged_out=True)
