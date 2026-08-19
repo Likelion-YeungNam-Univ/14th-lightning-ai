@@ -30,8 +30,20 @@ class OpenAIClient:
         self.model = model
         self.timeout = timeout
 
-    def generate_json(self, *, system: str, user: str, schema: dict, name: str = "output") -> dict:
-        """스키마 강제 생성. gpt-5 계열은 temperature 미지원 — 보내지 않는다."""
+    def generate_json(
+        self,
+        *,
+        system: str,
+        user: str,
+        schema: dict,
+        name: str = "output",
+        reasoning_effort: str | None = None,
+    ) -> dict:
+        """스키마 강제 생성. gpt-5 계열은 temperature 미지원 — 보내지 않는다.
+
+        reasoning_effort: 지정 시에만 본문에 실린다. 사용자 요청 경로(용어 풀이, F-5.4)는
+        "minimal" — 실측 평균 6.8s → 2.3s(#69). 배치 요약은 품질 우선이라 기본값(None).
+        """
         body = {
             "model": self.model,
             "messages": [
@@ -43,6 +55,8 @@ class OpenAIClient:
                 "json_schema": {"name": name, "strict": True, "schema": schema},
             },
         }
+        if reasoning_effort:
+            body["reasoning_effort"] = reasoning_effort
         try:
             resp = httpx.post(
                 API_URL,
