@@ -16,6 +16,10 @@ class LoginResponse(BaseModel):
     authenticated: bool
 
 
+class LogoutResponse(BaseModel):
+    logged_out: bool
+
+
 class ResetDemoResponse(BaseModel):
     stocks: list[str]  # 초기화 후 기본 종목
     deleted_saved_cards: int
