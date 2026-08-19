@@ -33,6 +33,10 @@ class Card(BaseModel):
     indicator_value: str | None = None  # 금리 탭만
     details: list[CardDetail] | None = None  # 정형 공시만 (이슈 #18)
     link_sentence: str | None = None  # 금리 탭만 — 카드별 "내 종목엔" 문장
+    # 공시만 (이슈 #58) — 서식 코드와 한글 서식명. SEC는 제목이 "8-K" 같은 서식 코드뿐이라
+    # 초보자용 칩("8-K · 수시 보고서")에 쓴다. 제목 원문은 그대로 둔다(F-5.1.2).
+    doc_type: str | None = None
+    doc_type_name: str | None = None
 
 
 class CardListResponse(BaseModel):
