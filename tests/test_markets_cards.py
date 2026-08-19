@@ -156,8 +156,19 @@ def _seed_card_data(db):
         origin_url="https://federalregister.gov/card-reg",
     )
     ensure_industry_link(db, reg.id, "overseas", "3711")
+    sec = upsert_source_item(  # SEC 공시 — 제목이 서식 코드뿐 (이슈 #58 칩 대상)
+        db,
+        tab="disclosure",
+        market="overseas",
+        source_key="card-sec",
+        title="8-K",
+        doc_type="8-K",
+        published_at=utcnow(),
+        origin_url="https://www.sec.gov/card-sec",
+    )
+    ensure_stock_link(db, sec.id, "TSLA")
     db.commit()
-    return {"hidden_id": hidden.id, "fed_id": fed.id}
+    return {"hidden_id": hidden.id, "fed_id": fed.id, "sec_id": sec.id}
 
 
 def test_cards_tab_slot_rules(client):
@@ -187,6 +198,15 @@ def test_cards_tab_slot_rules(client):
     assert item["label"] == "positive" and item["label_reason"] and item["summary_full"]
     assert item["details"] == [{"label": "취득 예정 금액", "value": "1,000,000,000원"}]
     assert item["thumbnail_url"] is None and item["view_count"] is None
+    # 서식 코드·한글명 (이슈 #58) — 국내는 서식명이 이미 한글이라 코드 = 이름
+    assert item["doc_type"] == "자기주식취득결정" and item["doc_type_name"] == "자기주식취득결정"
+    assert yt["items"][0]["doc_type"] is None and yt["items"][0]["doc_type_name"] is None
+
+    # 해외 공시: 제목은 "8-K" 원문 그대로(F-5.1.2), 칩용 한글 서식명만 붙는다 (이슈 #58)
+    sec = client.get("/cards", params={"tab": "disclosure", "stock_code": "TSLA"}).json()
+    sec_item = next(c for c in sec["items"] if c["card_id"] == ids["sec_id"])
+    assert sec_item["title"] == "8-K"
+    assert sec_item["doc_type"] == "8-K" and sec_item["doc_type_name"] == "수시 보고서"
 
     # 금리 탭: link_sentence 1회 + indicator_value, 라벨 null (F-6.2)
     bok = client.get("/cards", params={"tab": "bok", "stock_code": "111110"}).json()

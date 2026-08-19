@@ -23,7 +23,7 @@ from app.models import (
     StockMaster,
     UserSession,
 )
-from app.services.industry import displayed_form_codes
+from app.services.industry import displayed_form_codes, form_type_name
 from app.services.markets import RATE_TABS, set_last_stock, validate_combination
 
 CARDS_PER_TAB = 20  # 탭당 20건 내외 (F-6 제안 채택)
@@ -101,8 +101,7 @@ def _query_items(db: Session, tab: str, stock: StockMaster) -> list[SourceItem]:
         .filter(SourceItemStock.stock_code == stock.stock_code, SourceItem.tab == tab)
     )
     if tab == "disclosure":  # 노출 유형 필터 (이슈 #18) — 수집은 전체, 노출만 거른다
-        market_key = "domestic" if stock.market == MARKET_DOMESTIC else "overseas"
-        query = query.filter(SourceItem.doc_type.in_(displayed_form_codes(market_key)))
+        query = query.filter(SourceItem.doc_type.in_(displayed_form_codes(_market_key(stock))))
         order = SourceItem.published_at.desc().nullslast()
     else:  # youtube — 조회수순 (수집 정렬과 동일)
         order = SourceItem.view_count.desc().nullslast()
@@ -128,6 +127,11 @@ def _generated_for(db: Session, tab: str, stock: StockMaster, item: SourceItem):
 
 def _industry_key(stock: StockMaster) -> str | None:
     return stock.industry_code if stock.market == MARKET_DOMESTIC else stock.sic_code
+
+
+def _market_key(stock: StockMaster) -> str:
+    """data/*.json의 구분 키 — MARKET_DOMESTIC/OVERSEAS 상수값과 동일한 문자열."""
+    return "domestic" if stock.market == MARKET_DOMESTIC else "overseas"
 
 
 def _link_sentence_for_item(
@@ -164,6 +168,11 @@ def _build_card(db: Session, tab: str, stock: StockMaster, item: SourceItem) -> 
             _link_sentence_for_item(db, tab, stock.market, _industry_key(stock), item)
             if tab in RATE_TABS
             else None
+        ),
+        # 공시만 — 서식 코드 + 한글 서식명 칩 (이슈 #58). 제목은 원문 그대로(F-5.1.2)
+        "doc_type": item.doc_type if tab == "disclosure" else None,
+        "doc_type_name": (
+            form_type_name(_market_key(stock), item.doc_type) if tab == "disclosure" else None
         ),
     }
 

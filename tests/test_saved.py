@@ -99,6 +99,8 @@ def test_save_snapshot_idempotent_and_immutable(client, login_env):
     assert snap["title"] == "주요사항보고서(자기주식취득결정)"
     assert snap["summary_short"] and snap["label"] == "positive"
     assert snap["details"] == [{"label": "취득 예정 금액", "value": "1,000원"}]
+    # 서식 코드·한글명도 스냅샷에 (이슈 #58) — 저장 카드도 칩을 렌더할 수 있어야 한다
+    assert snap["doc_type"] == "자기주식취득결정" and snap["doc_type_name"] == "자기주식취득결정"
 
     # 중복 저장 — 멱등 (F-7.1)
     r2 = client.post("/me/saved-cards", json={"card_id": dis_id, "stock_code": "111110"})
