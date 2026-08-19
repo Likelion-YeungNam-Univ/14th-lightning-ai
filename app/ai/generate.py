@@ -14,9 +14,11 @@ logger = logging.getLogger(__name__)
 
 def generate_all(db: Session, client: OpenAIClient | None = None, limit: int | None = None) -> dict:
     client = client or get_llm_client()
+    # 연결 문장(업종×지표, 수십 회·1~2분)을 먼저 — 요약 밀린 양이 수백 건이면 몇 시간 걸려서
+    # 그 뒤에 두면 재기동 한 번에 그날 "내 종목엔"이 통째로 빠진다 (#61). 서로 의존 없음.
     result = {
-        "summaries": generate_summaries(db, client, limit=limit),
         "link_sentences": generate_link_sentences(db, client, limit=limit),
+        "summaries": generate_summaries(db, client, limit=limit),
     }
     logger.info("generate_all: %s", result)
     return result
