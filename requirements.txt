@@ -1,0 +1,23 @@
+# 웹
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic-settings>=2.4
+
+# DB
+sqlalchemy>=2.0.30
+psycopg[binary]>=3.2
+pgvector>=0.3
+
+# 배치·수집
+apscheduler>=3.10
+httpx>=0.27
+finance-datareader>=0.9.90
+yfinance>=0.2.40  # 종가 조회 1차 실패 시 백업 (C-6.2.0)
+
+# AI (생성 + 임베딩 — OpenAI 단일)
+openai>=1.50
+
+# 개발
+pytest>=8.0
+respx>=0.21
+ruff>=0.6

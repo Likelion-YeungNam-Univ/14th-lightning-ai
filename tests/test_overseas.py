@@ -1,0 +1,442 @@
+"""F-3.2·F-4.6·F-4.7 해외 축 테스트 — SEC·Federal Register respx 목킹, LLM 페이크.
+
+예상 문제 지점(팀 합의 방식)과 대응 테스트:
+1. SEC_USER_AGENT 미설정인데 호출 → 호출 전 실패 처리(차단 방지)
+2. 대상 외 폼(4·144 등)까지 수집 → 8-K·10-Q·10-K·6-K만
+3. 90일 밖 공시 수집 / 종목당 20건 초과 → 창·상한 준수
+4. CIK 매핑 안 되는 티커 → no_cik 스킵 + 로그
+5. FedReg 무효 기관 슬러그로 조회 → 유효 목록 대조 후 폐기 (F-4.7.1)
+6. FedReg 키워드 무관 문서 적재 → 기관 소관이어도 버림
+7. 해외 규제 relevant=false → 업종 링크 삭제·카드 미생성 (F-4.7.2)
+8. 해외 공시 요약 입력에 폼 해설 누락 → 해설 포함 확인 (F-4.6.1)
+9. 재수집 시 중복 적재 → upsert 멱등
+"""
+
+import respx
+from httpx import Response
+
+from app.ai.summarize import generate_summaries
+from app.collectors.base import ensure_industry_link, ensure_stock_link, upsert_source_item
+from app.collectors.fedreg import sync_us_regulations
+from app.collectors.sec import sync_overseas_master, sync_sec_disclosures
+from app.config import settings
+from app.db import SessionLocal
+from app.deps import utcnow
+from app.models import (
+    MARKET_OVERSEAS,
+    CollectStatus,
+    GeneratedContent,
+    IndustryAgency,
+    SourceItem,
+    SourceItemIndustry,
+    SourceItemStock,
+    StockMaster,
+)
+from app.services.industry import (
+    load_overseas_industries,
+    seed_form_types,
+    seed_overseas_industries,
+)
+from tests.test_ai import GOOD, FakeLLM
+
+COMPANY_TICKERS = {
+    "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+    "1": {"cik_str": 1318605, "ticker": "TSLA", "title": "Tesla, Inc."},
+}
+
+
+def _recent(rows):
+    """(form, filingDate, accession, desc, doc) 목록 → submissions recent 병렬 배열."""
+    return {
+        "form": [r[0] for r in rows],
+        "filingDate": [r[1] for r in rows],
+        "accessionNumber": [r[2] for r in rows],
+        "primaryDocDescription": [r[3] for r in rows],
+        "primaryDocument": [r[4] for r in rows],
+    }
+
+
+def _submissions(rows, sic="3711"):
+    return {"name": "Test Co", "sic": sic, "filings": {"recent": _recent(rows)}}
+
+
+# ── SEC (예상 문제 1~4·9) ──────────────────────────────────────────────
+
+
+@respx.mock
+def test_overseas_master_resolves_cik_and_sic(client, monkeypatch, tmp_path):
+    monkeypatch.setattr("app.collectors.sec.time.sleep", lambda _s: None)
+    # 실제 15개 대신 2개짜리 임시 화이트리스트 — 다른 테스트의 2종 전제 유지
+    (tmp_path / "overseas_whitelist.json").write_text(
+        '{"stocks": [{"ticker": "AAPL", "name": "애플", "aliases": ["애플", "apple"]},'
+        '{"ticker": "TSLA", "name": "테슬라", "aliases": ["테슬라", "tesla"]},'
+        '{"ticker": "ZZZZ", "name": "없는회사", "aliases": []}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.collectors.sec.DATA_DIR", tmp_path)
+
+    respx.get(host="www.sec.gov", path="/files/company_tickers.json").mock(
+        return_value=Response(200, json=COMPANY_TICKERS)
+    )
+    seen_ua = []
+
+    def sub_responder(request):
+        seen_ua.append(request.headers.get("User-Agent"))
+        sic = "3571" if "0000320193" in request.url.path else "3711"
+        return Response(200, json=_submissions([], sic=sic))
+
+    respx.get(host="data.sec.gov", path__startswith="/submissions/").mock(side_effect=sub_responder)
+
+    with SessionLocal() as db:
+        stats = sync_overseas_master(db)
+        assert stats["stocks"] == 2
+        assert stats["no_cik"] == 1  # ZZZZ — 매핑 없음 스킵
+        aapl = db.get(StockMaster, "AAPL")
+        assert aapl.cik == "0000320193" and aapl.sic_code == "3571"  # 10자리 패딩 + SIC
+        assert db.get(StockMaster, "TSLA").cik == "0001318605"
+        assert seen_ua and all(ua == settings.sec_user_agent for ua in seen_ua)  # UA 필수
+        # 업종·폼 해설 시드 동반
+        assert stats["industries"] == len(load_overseas_industries())
+        assert stats["form_types"] == 22  # 국내 18 + 미국 4 (이슈 #18 유형 확장)
+
+
+@respx.mock
+def test_sec_disclosures_form_filter_window_and_dedup(client, monkeypatch):
+    monkeypatch.setattr("app.collectors.sec.time.sleep", lambda _s: None)
+    today = utcnow().strftime("%Y-%m-%d")
+    rows = [
+        ("8-K", today, "acc-1", "8-K", "a.htm"),
+        ("4", today, "acc-2", "FORM 4", "b.xml"),  # 대상 외 폼
+        ("10-Q", today, "acc-3", "", "c.htm"),  # 설명 없음 → 폼 코드가 제목
+        ("10-K", "2020-01-01", "acc-4", "10-K", "d.htm"),  # 90일 밖
+    ]
+    respx.get(host="data.sec.gov", path__startswith="/submissions/").mock(
+        return_value=Response(200, json=_submissions(rows))
+    )
+    with SessionLocal() as db:
+        tsla = db.get(StockMaster, "TSLA")
+        tsla.cik = "0001318605"
+        db.commit()
+
+        stats = sync_sec_disclosures(db, [tsla])
+        assert stats == {"stocks": 1, "items": 2, "failed": 0, "no_cik": 0}
+
+        items = {
+            i.source_key: i
+            for i in db.query(SourceItem).filter(
+                SourceItem.tab == "disclosure", SourceItem.market == MARKET_OVERSEAS
+            )
+        }
+        assert set(items) >= {"acc-1", "acc-3"}
+        assert "acc-2" not in items and "acc-4" not in items
+        assert items["acc-3"].title == "10-Q"  # 영문 원문/폼 코드 그대로 — 번역 없음
+        assert items["acc-1"].doc_type == "8-K"
+        assert "edgar/data/1318605/acc1/a.htm" in items["acc-1"].origin_url
+        assert db.get(SourceItemStock, (items["acc-1"].id, "TSLA")) is not None
+
+        before = len(items)
+        sync_sec_disclosures(db, [tsla])  # 멱등
+        count_after = (
+            db.query(SourceItem)
+            .filter(SourceItem.tab == "disclosure", SourceItem.market == MARKET_OVERSEAS)
+            .count()
+        )
+        assert count_after == before
+
+
+def test_sec_without_user_agent_fails_before_call(client, monkeypatch):
+    monkeypatch.setattr(settings, "sec_user_agent", "")
+    with SessionLocal() as db:
+        tsla = db.get(StockMaster, "TSLA")
+        tsla.cik = "0001318605"
+        db.commit()
+        stats = sync_sec_disclosures(db, [tsla])  # respx 없이 — 호출되면 실 API로 나간다
+        assert stats["failed"] == 1
+        assert db.get(CollectStatus, ("disclosure", "TSLA")).status == "failed"
+        assert "SEC_USER_AGENT" in db.get(CollectStatus, ("disclosure", "TSLA")).detail
+
+
+# ── Federal Register (예상 문제 5·6) ───────────────────────────────────
+
+
+FEDREG_DOCS = {
+    "results": [
+        {
+            "title": "New Drug Approval Pathway Rule",
+            "abstract": "FDA finalizes a rule on prescription drug approval.",
+            "agencies": [{"slug": "food-and-drug-administration"}],
+            "publication_date": "2026-08-01",
+            "html_url": "https://www.federalregister.gov/d/FR-1",
+            "document_number": "FR-1",
+            "type": "Rule",
+        },
+        {
+            "title": "Paperwork Reduction Act Notice",  # 키워드 무관
+            "abstract": "Administrative information collection notice.",
+            "agencies": [{"slug": "food-and-drug-administration"}],
+            "publication_date": "2026-08-02",
+            "html_url": "https://www.federalregister.gov/d/FR-2",
+            "document_number": "FR-2",
+            "type": "Rule",
+        },
+    ],
+    "next_page_url": None,
+}
+
+
+@respx.mock
+def test_fedreg_agency_validation_and_keyword_filter(client):
+    with SessionLocal() as db:
+        seed_overseas_industries(db)
+        db.add(  # 무효 슬러그 검증용 가짜 업종
+            IndustryAgency(
+                market=MARKET_OVERSEAS,
+                industry_key="9999",
+                name="가짜업종",
+                agencies=["not-a-real-agency"],
+                keywords=["nothing"],
+                profile="검증용",
+            )
+        )
+        db.commit()
+
+        valid = sorted({s for row in load_overseas_industries() for s in row["agencies"]})
+        respx.get(host="www.federalregister.gov", path="/api/v1/agencies").mock(
+            return_value=Response(200, json=[{"slug": s} for s in valid])
+        )
+        seen_params = []
+
+        def doc_responder(request):
+            seen_params.append(str(request.url))
+            return Response(200, json=FEDREG_DOCS)
+
+        respx.get(host="www.federalregister.gov", path="/api/v1/documents.json").mock(
+            side_effect=doc_responder
+        )
+
+        stats = sync_us_regulations(db)
+        assert stats["dropped_slugs"] == 1  # not-a-real-agency 폐기 (F-4.7.1)
+        assert stats["scanned"] == 2 and stats["matched"] == 1
+        assert "not-a-real-agency" not in seen_params[0]
+        assert "RULE" in seen_params[0] and "PRORULE" in seen_params[0]
+
+        item = (
+            db.query(SourceItem)
+            .filter(SourceItem.tab == "regulation", SourceItem.source_key == "FR-1")
+            .one()
+        )
+        assert item.market == MARKET_OVERSEAS
+        assert item.title == "New Drug Approval Pathway Rule"  # 영문 그대로
+        assert db.get(SourceItemIndustry, (item.id, MARKET_OVERSEAS, "2834")) is not None
+        # FR-2는 기관 소관이지만 키워드 무관 — 미적재
+        assert db.query(SourceItem).filter(SourceItem.source_key == "FR-2").one_or_none() is None
+        # 정리 — 다른 테스트에 가짜 업종이 남지 않게
+        db.delete(db.get(IndustryAgency, (MARKET_OVERSEAS, "9999")))
+        db.commit()
+
+
+# ── 해외 AI 가공 (예상 문제 7·8) ───────────────────────────────────────
+
+
+def test_overseas_regulation_relevance_drop(client):
+    with SessionLocal() as db:
+        seed_overseas_industries(db)
+        item = upsert_source_item(
+            db,
+            tab="regulation",
+            market=MARKET_OVERSEAS,
+            source_key="rel-1",
+            title="Unrelated Rule",
+            content="Administrative details only.",
+        )
+        ensure_industry_link(db, item.id, MARKET_OVERSEAS, "3674")
+        db.commit()
+
+        irrelevant = {**GOOD, "relevant": False}
+        stats = generate_summaries(db, FakeLLM([irrelevant]), items=[item])
+        assert stats["dropped"] == 1 and stats["generated"] == 0
+        # 업종 링크 삭제 + 카드(생성물) 미생성 (F-4.7.2)
+        assert db.get(SourceItemIndustry, (item.id, MARKET_OVERSEAS, "3674")) is None
+        assert db.query(GeneratedContent).filter_by(source_item_id=item.id).one_or_none() is None
+
+
+def test_overseas_disclosure_prompt_includes_form_desc(client):
+    with SessionLocal() as db:
+        seed_form_types(db)
+        item = upsert_source_item(
+            db,
+            tab="disclosure",
+            market=MARKET_OVERSEAS,
+            source_key="form-1",
+            title="8-K",
+            doc_type="8-K",
+        )
+        ensure_stock_link(db, item.id, "TSLA")
+        db.commit()
+
+        fake = FakeLLM([GOOD])
+        stats = generate_summaries(db, fake, items=[item])
+        assert stats["generated"] == 1
+        assert "유형 해설" in fake.calls[0]  # F-4.6.1 — 폼 해설이 요약 입력에 들어간다
+        assert "수시 보고서" in fake.calls[0]
+        assert "미국 상장사 공시" in fake.calls[0]
+
+
+# ── 이슈 #53 — 해외 공시 요약 입력 보강 (8-K items·첫 문단 / 10-Q 재무 슬롯) ─────
+
+
+EIGHT_K_HTML = """<html><body><p>UNITED STATES SECURITIES AND EXCHANGE COMMISSION</p>
+<p>Item 2.02. Results of Operations and Financial Condition.</p>
+<p>On July 30, 2026, Apple Inc. issued a press release regarding financial results for its
+third fiscal quarter ended June 27, 2026. A copy is attached as Exhibit 99.1.</p>
+<p>Item 9.01. Financial Statements and Exhibits.</p><p>(d) Exhibits.</p></body></html>"""
+
+COMPANYFACTS = {
+    "facts": {
+        "us-gaap": {
+            "RevenueFromContractWithCustomerExcludingAssessedTax": {
+                "units": {
+                    "USD": [
+                        {
+                            "accn": "acc-10q",
+                            "form": "10-Q",
+                            "fp": "Q3",
+                            "end": "2026-06-27",
+                            "val": 109_417_000_000,
+                        },
+                        {
+                            "accn": "acc-10q",
+                            "form": "10-Q",
+                            "fp": "Q3",
+                            "end": "2025-06-28",
+                            "val": 94_000_000_000,
+                        },  # 전년 비교분 — end 늦은 것만 채택
+                        {
+                            "accn": "acc-10q",
+                            "form": "10-Q",
+                            "fp": "YTD",
+                            "end": "2026-06-27",
+                            "val": 300_000_000_000,
+                        },  # 누적 — 제외
+                    ]
+                }
+            },
+            "NetIncomeLoss": {
+                "units": {
+                    "USD": [
+                        {
+                            "accn": "acc-10q",
+                            "form": "10-Q",
+                            "fp": "Q3",
+                            "end": "2026-06-27",
+                            "val": 29_789_000_000,
+                        }
+                    ]
+                }
+            },
+            "EarningsPerShareDiluted": {
+                "units": {
+                    "USD/shares": [
+                        {
+                            "accn": "acc-10q",
+                            "form": "10-Q",
+                            "fp": "Q3",
+                            "end": "2026-06-27",
+                            "val": 2.02,
+                        }
+                    ]
+                }
+            },
+        }
+    }
+}
+
+
+@respx.mock
+def test_sec_eight_k_items_and_snippet(client, monkeypatch):
+    """8-K: items 코드 → 한국어 사안명 + 첫 Item 문단(≤400자)이 content에 들어간다."""
+    monkeypatch.setattr("app.collectors.sec.time.sleep", lambda _s: None)
+    today = utcnow().strftime("%Y-%m-%d")
+    recent = _recent([("8-K", today, "acc-8k", "8-K", "aapl-8k.htm")])
+    recent["items"] = ["2.02,9.01"]
+    respx.get(host="data.sec.gov", path__startswith="/submissions/").mock(
+        return_value=Response(
+            200, json={"name": "Apple", "sic": "3571", "filings": {"recent": recent}}
+        )
+    )
+    respx.get(host="www.sec.gov", path__regex=r"/Archives/edgar/data/.*/aapl-8k\.htm").mock(
+        return_value=Response(200, text=EIGHT_K_HTML)
+    )
+    with SessionLocal() as db:
+        aapl = db.get(StockMaster, "AAPL")
+        aapl.cik = "0000320193"
+        db.commit()
+        stats = sync_sec_disclosures(db, [aapl])
+        assert stats["items"] == 1 and stats["failed"] == 0
+
+        item = db.query(SourceItem).filter_by(source_key="acc-8k").one()
+        assert "실적 발표" in item.content and "(2.02)" in item.content  # 사안명 매핑
+        assert "issued a press release" in item.content  # 첫 Item 문단
+        assert "SECURITIES AND EXCHANGE COMMISSION" not in item.content  # 머리글 제외
+        assert "Exhibits" not in item.content.split("본문 요지")[1][:400]  # 다음 Item 전에서 끊김
+        assert item.detail_json is None  # 8-K는 슬롯 없음
+        assert item.title == "8-K"  # 제목은 여전히 원문 그대로 (F-5.1.2)
+
+
+@respx.mock
+def test_sec_ten_q_financial_slots(client, monkeypatch):
+    """10-Q: companyfacts 매출·순이익·EPS가 접수번호로 매칭돼 슬롯·content에 들어간다."""
+    monkeypatch.setattr("app.collectors.sec.time.sleep", lambda _s: None)
+    today = utcnow().strftime("%Y-%m-%d")
+    respx.get(host="data.sec.gov", path__startswith="/submissions/").mock(
+        return_value=Response(
+            200,
+            json=_submissions(
+                [
+                    ("10-Q", today, "acc-10q", "10-Q", "q.htm"),
+                    ("10-Q", today, "acc-none", "10-Q", "z.htm"),
+                ]
+            ),
+        )
+    )
+    respx.get(host="data.sec.gov", path__startswith="/api/xbrl/companyfacts/").mock(
+        return_value=Response(200, json=COMPANYFACTS)
+    )
+    with SessionLocal() as db:
+        tsla = db.get(StockMaster, "TSLA")
+        tsla.cik = "0001318605"
+        db.commit()
+        stats = sync_sec_disclosures(db, [tsla])
+        assert stats["items"] == 2
+
+        q = db.query(SourceItem).filter_by(source_key="acc-10q").one()
+        slots = {s["label"]: s["value"] for s in q.detail_json["slots"]}
+        assert slots == {"매출": "$109.4B", "순이익": "$29.8B", "주당순이익(희석)": "$2.02"}
+        assert "매출 $109.4B" in q.content  # 요약 입력에도 포함 (F-5.1.3 숫자 검증과 정합)
+        # 접수번호가 다른 10-Q는 슬롯 없음 — 다른 공시의 수치를 빌려오지 않는다
+        z = db.query(SourceItem).filter_by(source_key="acc-none").one()
+        assert z.detail_json is None and z.content is None
+
+
+@respx.mock
+def test_sec_snippet_failure_does_not_block(client, monkeypatch):
+    """본문 조회 실패(404 등)여도 카드는 적재되고 items 사안명은 남는다."""
+    monkeypatch.setattr("app.collectors.sec.time.sleep", lambda _s: None)
+    monkeypatch.setattr("app.collectors.base.time.sleep", lambda _s: None)
+    today = utcnow().strftime("%Y-%m-%d")
+    recent = _recent([("8-K", today, "acc-8k-fail", "8-K", "gone.htm")])
+    recent["items"] = ["8.01"]
+    respx.get(host="data.sec.gov", path__startswith="/submissions/").mock(
+        return_value=Response(200, json={"name": "T", "sic": "3711", "filings": {"recent": recent}})
+    )
+    respx.get(host="www.sec.gov", path__regex=r"/Archives/edgar/data/.*/gone\.htm").mock(
+        return_value=Response(404)
+    )
+    with SessionLocal() as db:
+        tsla = db.get(StockMaster, "TSLA")
+        tsla.cik = "0001318605"
+        db.commit()
+        stats = sync_sec_disclosures(db, [tsla])
+        assert stats["items"] == 1 and stats["failed"] == 0
+        item = db.query(SourceItem).filter_by(source_key="acc-8k-fail").one()
+        assert item.content == "사안: 기타 중요 사건(8.01)"

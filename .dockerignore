@@ -1,0 +1,10 @@
+.git
+.venv
+.idea
+.github
+pgdata
+.env
+__pycache__
+*.pyc
+tests/.test_assit.db
+docs

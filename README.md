@@ -1,43 +1,65 @@
-# 14th-lightning-ai
-- 프로젝트 이름: assit
-- 프로젝트 설명: 초보 투자자가 **본인이 보유한 종목에 걸리는 정보를
-  출처별 탭 한 화면에서** 확인할 수 있는 투자 정보 통합 대시보드.
+# assit 백엔드
 
-<br/>
-<br/>
+초보 투자자가 **본인이 보유한 종목에 걸리는 정보(유튜브·공시·규제·한국은행·Fed)**를
+국내/해외 구분 · 출처별 탭 한 화면에서 확인할 수 있는 투자 정보 통합 대시보드.
+구현 기준 문서와 팀 규칙은 [`docs/assit_요구사항명세서_v3.md`](docs/assit_요구사항명세서_v3.md)와
+[`.claude/CLAUDE.md`](.claude/CLAUDE.md) 참조.
 
-# BE Team Members
+## BE Team Members
 | 류승래 | 장문경 |
 |:------:|:------:|
-| <img src="https://avatars.githubusercontent.com/u/138495924?v=4" alt="류승래" width="150"> | <img src="https://avatars.githubusercontent.com/u/169876583?v=4" alt="신유승" width="150"> |
+| <img src="https://avatars.githubusercontent.com/u/138495924?v=4" width="150"> | <img src="https://avatars.githubusercontent.com/u/169876583?v=4" width="150"> |
 | [GitHub](https://github.com/ryu2293) | [GitHub](https://github.com/mujang3) |
-<br/>
-<br/>
 
-# Key Features
-- **세션 · 모의 로그인 (F-1)**
-  - 진입 시 세션을 발급하고, 사전 설정된 계정으로 로그인 여부만 확인하는 시연용 모의 인증.
-  - 로그인은 "종목 추가"와 "카드 저장" 두 지점에서만 요구되고, 나머지 탭은 비로그인으로도 열람 가능.
+## Key Features
+- **세션 · 로그인 (F-1)** — 비로그인으로 전체 열람, 종목 추가·카드 저장 두 지점만 모의 로그인 요구
+- **국내 / 해외 구분 (F-2)** — 구분에 따라 탭 구성이 달라짐(국내 5탭 / 해외 4탭), 구분별 마지막 조회 종목 기억
+- **종목 관리 (F-3)** — 국내·해외 각각 검색·최대 10개 등록·순서 변경·삭제, 국내는 기본 종목 4개 자동 등록
+- **외부 데이터 수집 (F-4)** — 국내(DART 공시·정책브리핑 규제·ECOS 한국은행)/해외(SEC EDGAR 공시·Federal Register 규제·FRED)+유튜브, 매일 06:00 배치
+- **AI 가공 (F-5)** — OpenAI API(`OPENAI_MODEL`, 기본 gpt-5-mini)로 공시·규제·금리 2단 요약, 긍정/중립/부정 라벨+판단 이유, "내 종목엔" 연결 문장, 용어 풀이(RAG), 매수·매도 권유 등 금지 표현 가드레일
+- **콘텐츠 조회 (F-6)** — 탭×종목 카드 목록, 공통 스키마로 프론트 렌더링 단순화
+- **카드 저장 (F-7)** — 모든 탭 카드 저장, 저장 시점 스냅샷 고정, 국내/해외 구분 없이 통합 조회
+- **공통·비기능 (F-8)** — 에러 응답 규격, 전환율 이벤트 로깅, 레이트리밋, 시크릿 환경변수 관리
 
-- **종목 관리 (F-2)**
-  - 종목명/코드로 검색해 최대 30개까지 벌크 등록, 순서 변경, 삭제.
-  - 신규 세션엔 시가총액 상위 4개 종목이 기본 등록됨.
+## 시작하기
 
-- **5개 출처별 정보 탭 (F-3, F-5)**
-  - 공시(DART), 규제 동향(정책브리핑), 한국은행(ECOS 기준금리), 미국 Fed(FRED), 유튜브(조회수순) — 매일 06:00 배치 수집.
-  - 탭마다 공통 카드 스키마로 응답하며, 해당 없는 필드는 null 처리.
+```bash
+# 1. DB (Postgres 16 + pgvector)
+docker compose up -d db
 
-- **AI 요약 · 라벨링 (F-4)**
-  - 공시/규제/금리 자료를 Claude API(`claude-opus-5`)로 2단 요약(`summary_short`/`summary_full`) 생성.
-  - 공시·규제 자료에는 긍정/중립/부정 라벨 + 판단 이유를 부착(정렬·집계에는 사용 금지).
-  - 한국은행·Fed 탭은 업종 성격과 금리 지표를 잇는 "내 종목엔" 연결 문장을 1회 생성.
-  - 요약 시트에서 드래그한 용어를 RAG(한국은행 700선 + DART 공시유형 해설) 기반으로 풀이.
-  - 모든 생성물은 매수·매도 권유, 수치 단정, 방향 예측 표현을 걸러내는 가드레일 후처리를 거침.
+# 2. 파이썬 환경
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 
-- **카드 저장 (F-6)**
-  - 모든 탭의 카드를 저장 가능, 저장 시점의 내용을 `snapshot_json`으로 고정해 원자료가 삭제/갱신돼도 유지.
+# 3. 환경 변수
+cp .env.example .env   # 키 값 채우기 (키 없이도 서버 기동·종목 동기화는 가능)
 
-- **공통·운영 (F-7)**
-  - 통일된 에러 응답 규격, 전환율 측정용 이벤트 로깅, 시크릿은 환경 변수로만 관리, 평단가·수량 등 금액 정보는 어떤 경로로도 수집하지 않음.
+# 4. 종목 마스터 적재 (KRX — 키 불필요)
+.venv/bin/python -m scripts.sync_stock_master
 
-<br/><br/>
+# 5. DART 고유번호 매핑 (DART_API_KEY 필요)
+.venv/bin/python -m scripts.sync_corp_codes
+
+# 6. 개발 서버 (워커 1개 고정 — CLAUDE.md 불변식 3)
+.venv/bin/uvicorn app.main:app --reload
+```
+
+확인: http://localhost:8000/health , API 문서: http://localhost:8000/docs
+
+## 테스트 · 린트 (머지 전 필수)
+
+```bash
+.venv/bin/pytest
+.venv/bin/ruff check .
+```
+
+테스트는 실 DB·외부 API·API 키 없이 돈다(sqlite + 목킹).
+
+## 구조
+
+```
+app/        FastAPI 앱 — routers(엔드포인트) / services(로직) / collectors(외부 수집) / ai(LLM·RAG)
+data/       업종 분류·부처 매핑 등 코드가 아닌 데이터 (수정 시 배포 불필요)
+scripts/    1회성·수동 실행 스크립트 (마스터 동기화, 지식베이스 적재 등)
+docs/       명세·PRD·개발계획서 (문서가 코드에 우선한다)
+```

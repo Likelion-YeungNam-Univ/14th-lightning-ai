@@ -1,0 +1,20 @@
+{
+  "_comment": "F-3.2 — 해외 화이트리스트 15개 (확정사항 0절·3절). CIK·SIC는 수기 관리하지 않고 scripts/sync_overseas_master.py가 SEC company_tickers.json·submissions에서 실시간 해석해 적재한다(F-3.2.1). 종목 추가·교체 시 이 파일 수정 후 스크립트 재실행.",
+  "stocks": [
+    {"ticker": "TSLA", "name": "테슬라", "aliases": ["테슬라", "tesla"]},
+    {"ticker": "AAPL", "name": "애플", "aliases": ["애플", "apple"]},
+    {"ticker": "NVDA", "name": "엔비디아", "aliases": ["엔비디아", "nvidia"]},
+    {"ticker": "MSFT", "name": "마이크로소프트", "aliases": ["마이크로소프트", "microsoft"]},
+    {"ticker": "GOOGL", "name": "알파벳(구글)", "aliases": ["구글", "알파벳", "google", "alphabet", "goog"]},
+    {"ticker": "AMZN", "name": "아마존", "aliases": ["아마존", "amazon"]},
+    {"ticker": "META", "name": "메타", "aliases": ["메타", "페이스북", "meta", "facebook"]},
+    {"ticker": "NFLX", "name": "넷플릭스", "aliases": ["넷플릭스", "netflix"]},
+    {"ticker": "AVGO", "name": "브로드컴", "aliases": ["브로드컴", "broadcom"]},
+    {"ticker": "AMD", "name": "AMD", "aliases": ["amd", "에이엠디"]},
+    {"ticker": "INTC", "name": "인텔", "aliases": ["인텔", "intel"]},
+    {"ticker": "LLY", "name": "일라이 릴리", "aliases": ["일라이릴리", "릴리", "lilly"]},
+    {"ticker": "KO", "name": "코카콜라", "aliases": ["코카콜라", "coca-cola", "coke"]},
+    {"ticker": "SBUX", "name": "스타벅스", "aliases": ["스타벅스", "starbucks"]},
+    {"ticker": "JPM", "name": "JP모건", "aliases": ["jp모건", "제이피모건", "jpmorgan"]}
+  ]
+}

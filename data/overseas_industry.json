@@ -1,0 +1,197 @@
+{
+  "_comment": "F-4.7.1 — SIC 코드 → 연방기관·키워드·업종 성격(F-5.3 입력). industry_key = SIC 코드. agencies는 Federal Register /api/v1/agencies 유효 슬러그로 실측 검증(2026-08-14) — 수집 시 무효 슬러그는 자동 폐기·로그. 화이트리스트 15개의 SIC만 커버한다. sync_overseas_master가 미커버 SIC를 로그로 알려준다.",
+  "industries": [
+    {
+      "sic": "3711",
+      "name": "자동차·전기차",
+      "profile": "차량 안전·배출 규제와 보조금 정책, 금리에 따른 할부 수요 변화가 실적에 직결되는 업종",
+      "agencies": [
+        "national-highway-traffic-safety-administration",
+        "environmental-protection-agency"
+      ],
+      "keywords": [
+        "vehicle",
+        "automotive",
+        "motor",
+        "battery",
+        "emission",
+        "fuel",
+        "autonomous"
+      ]
+    },
+    {
+      "sic": "3571",
+      "name": "컴퓨터·하드웨어",
+      "profile": "글로벌 공급망과 관세·수출 규제, 소비 경기 흐름에 민감한 IT 기기 업종",
+      "agencies": [
+        "industry-and-security-bureau",
+        "federal-trade-commission",
+        "consumer-product-safety-commission"
+      ],
+      "keywords": [
+        "computer",
+        "electronics",
+        "device",
+        "semiconductor",
+        "export",
+        "tariff",
+        "supply chain"
+      ]
+    },
+    {
+      "sic": "3674",
+      "name": "반도체",
+      "profile": "수출 통제·보조금 등 정부 정책과 사이클(호황·불황) 영향이 큰 장치 산업",
+      "agencies": [
+        "industry-and-security-bureau",
+        "commerce-department"
+      ],
+      "keywords": [
+        "semiconductor",
+        "chip",
+        "export",
+        "advanced computing",
+        "integrated circuit",
+        "ai"
+      ]
+    },
+    {
+      "sic": "7372",
+      "name": "소프트웨어",
+      "profile": "개인정보·AI 규제와 클라우드 수요, 기업 IT 투자 경기에 좌우되는 업종",
+      "agencies": [
+        "federal-trade-commission"
+      ],
+      "keywords": [
+        "software",
+        "artificial intelligence",
+        "privacy",
+        "data",
+        "cloud",
+        "cybersecurity"
+      ]
+    },
+    {
+      "sic": "7370",
+      "name": "인터넷 플랫폼",
+      "profile": "반독점·개인정보·콘텐츠 규제 압력이 크고 광고 경기에 민감한 업종",
+      "agencies": [
+        "federal-trade-commission",
+        "federal-communications-commission"
+      ],
+      "keywords": [
+        "platform",
+        "privacy",
+        "antitrust",
+        "advertising",
+        "artificial intelligence",
+        "data",
+        "online"
+      ]
+    },
+    {
+      "sic": "5961",
+      "name": "전자상거래·유통",
+      "profile": "소비 경기와 물류 비용, 소비자 보호·반독점 규제에 민감한 업종",
+      "agencies": [
+        "federal-trade-commission",
+        "consumer-product-safety-commission"
+      ],
+      "keywords": [
+        "consumer",
+        "retail",
+        "e-commerce",
+        "delivery",
+        "product safety",
+        "antitrust"
+      ]
+    },
+    {
+      "sic": "7841",
+      "name": "미디어·스트리밍",
+      "profile": "콘텐츠·통신 규제와 구독 소비 흐름에 영향을 받는 업종",
+      "agencies": [
+        "federal-communications-commission",
+        "federal-trade-commission"
+      ],
+      "keywords": [
+        "streaming",
+        "content",
+        "media",
+        "broadband",
+        "subscription",
+        "video"
+      ]
+    },
+    {
+      "sic": "2834",
+      "name": "제약·바이오",
+      "profile": "FDA 승인·약가 정책이 실적을 좌우하고 신약 성패에 따라 변동이 큰 업종",
+      "agencies": [
+        "food-and-drug-administration"
+      ],
+      "keywords": [
+        "drug",
+        "pharmaceutical",
+        "clinical",
+        "biologic",
+        "medical",
+        "prescription",
+        "vaccine"
+      ]
+    },
+    {
+      "sic": "2080",
+      "name": "음료·식품",
+      "profile": "원재료 가격과 식품 규제, 환율에 영향을 받는 필수 소비재 업종",
+      "agencies": [
+        "food-and-drug-administration",
+        "agriculture-department"
+      ],
+      "keywords": [
+        "food",
+        "beverage",
+        "labeling",
+        "nutrition",
+        "safety",
+        "ingredient"
+      ]
+    },
+    {
+      "sic": "5810",
+      "name": "외식·프랜차이즈",
+      "profile": "인건비·최저임금 정책과 소비 심리, 원두 등 원재료 가격에 민감한 업종",
+      "agencies": [
+        "food-and-drug-administration",
+        "labor-department"
+      ],
+      "keywords": [
+        "food",
+        "restaurant",
+        "wage",
+        "labor",
+        "menu",
+        "franchise"
+      ]
+    },
+    {
+      "sic": "6021",
+      "name": "은행·금융",
+      "profile": "기준금리와 자본 규제가 수익성에 직접 연결되는 업종",
+      "agencies": [
+        "federal-reserve-system",
+        "comptroller-of-the-currency",
+        "securities-and-exchange-commission"
+      ],
+      "keywords": [
+        "bank",
+        "capital",
+        "lending",
+        "deposit",
+        "financial",
+        "securities",
+        "liquidity"
+      ]
+    }
+  ]
+}
