@@ -18,6 +18,7 @@ router = APIRouter(tags=["saved-cards"])
 
 def _to_item(row: SavedCard, stock_name: str | None) -> SavedCardItem:
     return SavedCardItem(
+        id=row.id,
         card_id=row.source_item_id,
         tab=row.tab,
         stock_code=row.stock_code,

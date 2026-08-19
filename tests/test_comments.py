@@ -116,22 +116,11 @@ def test_comment_attach_saved_card(client, login_env):
         "/me/saved-cards", json={"card_id": card_source_id, "stock_code": "111110"}
     )
     assert save_r.status_code == 200, save_r.text
-    saved_card_id = save_r.json()["item"]["card_id"]  # source_item_id, not saved_card.id — 확인용
+    real_saved_card_id = save_r.json()["item"]["id"]  # saved_card.id — 첨부는 이 값을 쓴다
 
     # attachment 목적 조회 (C-5.1) — 기존 엔드포인트를 그대로 쓴다
     attach_list = client.get("/me/saved-cards", params={"for": "attachment"}).json()["items"]
-    assert any(i["card_id"] == saved_card_id for i in attach_list)
-
-    with SessionLocal() as db:
-        from app.models import SavedCard
-
-        session_id = client.cookies.get("assit_session")
-        row = (
-            db.query(SavedCard)
-            .filter(SavedCard.session_id == session_id, SavedCard.source_item_id == card_source_id)
-            .one()
-        )
-        real_saved_card_id = row.id
+    assert any(i["id"] == real_saved_card_id for i in attach_list)
 
     r = client.post(
         f"/rooms/{room_id}/comments",
