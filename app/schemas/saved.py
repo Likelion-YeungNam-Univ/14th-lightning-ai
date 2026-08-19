@@ -13,6 +13,7 @@ class SavedCardAddRequest(BaseModel):
 class SavedCardItem(BaseModel):
     """표시는 snapshot만 쓴다 (F-7.3). card_id는 원자료 정리 후 null일 수 있다."""
 
+    id: int  # saved_card 행 자체의 PK — 베팅방 댓글 자료 카드 첨부(C-5.1)가 이 값을 쓴다
     card_id: int | None
     tab: str  # 저장 당시 탭 배지
     stock_code: str
