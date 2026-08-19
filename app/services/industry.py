@@ -133,6 +133,17 @@ def displayed_form_codes(market_key: str) -> frozenset[str]:
     )
 
 
+def form_type_name(market_key: str, form_code: str | None) -> str | None:
+    """이슈 #58 — 카드 `doc_type_name`. 데이터의 `name`(해외 한글 서식명)이 있으면 그것,
+    없으면 서식 코드 자체(국내는 이미 한글). 대응표에 없는 코드는 None."""
+    if not form_code:
+        return None
+    for row in _form_type_data()[market_key]:
+        if row["form_code"] == form_code:
+            return row.get("name") or form_code
+    return None
+
+
 @lru_cache(maxsize=1)
 def load_dart_detail_map() -> dict:
     """이슈 #18 — 정형 API 매핑표: form_code → {endpoint, fields}."""

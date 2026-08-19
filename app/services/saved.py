@@ -29,6 +29,8 @@ def _build_snapshot(db: Session, item: SourceItem, stock: StockMaster) -> dict:
         "origin_url": card["origin_url"],
         "indicator_value": card["indicator_value"],
         "details": card["details"],
+        "doc_type": card["doc_type"],  # 공시 서식 코드·한글명 — 저장 카드도 칩 렌더 (이슈 #58)
+        "doc_type_name": card["doc_type_name"],
     }
 
 
