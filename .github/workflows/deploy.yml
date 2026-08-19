@@ -1,0 +1,63 @@
+name: Deploy
+
+# main 브랜치 push(= develop → main PR 머지) 시 가비아 서버에 자동 배포.
+# 서버에서 하는 일: git으로 main 최신화 → app 컨테이너만 재빌드·재기동 → /health 확인.
+# db 컨테이너·.env는 건드리지 않는다. 배치(generate_now/collect_now)가 도는 중이면
+# 재기동이 그 프로세스를 죽이므로 배포를 중단하고 실패로 알린다.
+#
+# 필요한 GitHub Secrets (Settings → Secrets and variables → Actions):
+#   DEPLOY_HOST     서버 IP
+#   DEPLOY_USER     SSH 계정 (ubuntu)
+#   DEPLOY_SSH_KEY  SSH 개인키(.pem 파일 내용 전체)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Actions 탭에서 수동 재배포
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false # 배포 도중 새 push가 와도 끝까지 마친 뒤 다음 배포
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: SSH 키 준비
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: 서버 배포
+        run: |
+          ssh -i ~/.ssh/deploy_key -o ConnectTimeout=15 \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd ~/14th-lightning-ai
+
+          # 배치 실행 중이면 재기동으로 죽이지 않도록 배포 중단
+          if docker compose top app 2>/dev/null | grep -Eq 'scripts\.(generate_now|collect_now|seed_knowledge)'; then
+            echo "::error::배치 스크립트 실행 중 — 끝난 뒤 Actions 탭에서 수동 재실행(workflow_dispatch)하세요"
+            exit 1
+          fi
+
+          git fetch origin main
+          git checkout -q main
+          git reset --hard origin/main
+          echo "배포 커밋: $(git log --oneline -1)"
+
+          docker compose up -d --build app
+
+          for i in $(seq 1 12); do
+            if curl -fsS http://localhost:8000/health; then
+              echo; echo "배포 완료"; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::/health 응답 없음 — 최근 로그:"
+          docker compose logs --tail=60 app
+          exit 1
+          REMOTE
