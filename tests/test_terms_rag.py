@@ -106,6 +106,7 @@ def test_explain_flow_cache_and_sources(client, monkeypatch):
     assert body["sources"][0]["term"] == "기준금리"  # RAG 근거 노출 (설명 가능성)
     assert "지니계수" not in [s["term"] for s in body["sources"]]
     assert "중앙은행이 결정하는 정책금리" in fake.calls[0]  # 근거가 프롬프트에 주입됐다
+    assert fake.efforts == ["minimal"]  # 사용자 대기 경로만 추론 최소화 (#69, 실측 6.8s→2.3s)
 
     r2 = _post_term(client, "기준금리")  # 캐시 히트 — fake 출력이 비어 호출되면 실패
     assert r2.status_code == 200
