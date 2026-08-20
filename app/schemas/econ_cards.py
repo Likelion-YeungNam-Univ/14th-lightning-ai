@@ -27,6 +27,7 @@ class EconCardDetailResponse(BaseModel):
     id: int
     title: str
     body: str
+    hard_terms: list[str] | None = None
     sources: list[EconCardSource]
 
 

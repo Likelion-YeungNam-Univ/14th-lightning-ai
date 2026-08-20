@@ -24,5 +24,9 @@ def get_econ_card(card_id: int, db: DbDep) -> EconCardDetailResponse:
     if card is None:
         raise AppError("unknown_econ_card", "존재하지 않는 카드입니다", 404)
     return EconCardDetailResponse(
-        id=card.id, title=card.title, body=card.body, sources=card.sources
+        id=card.id,
+        title=card.title,
+        body=card.body,
+        hard_terms=card.hard_terms or None,
+        sources=card.sources,
     )

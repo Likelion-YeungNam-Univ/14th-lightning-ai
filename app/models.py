@@ -302,6 +302,8 @@ class EconCard(Base):
     body: Mapped[str] = mapped_column(Text)  # 문장 단위 각주(¹²³) 포함
     # [{"number":1,"org":"한국은행","doc_title":"...","url":"..."}] — 각주번호·기관명·문서제목·URL
     sources: Mapped[list] = mapped_column(JSON)
+    # #77 — 본문에 등장하는 지식베이스 표제어(탭하면 풀이). 일반 카드 hard_terms와 같은 계약
+    hard_terms: Mapped[list | None] = mapped_column(JSON)
     batch_id: Mapped[str] = mapped_column(String(36), index=True)
     # draft(생성 직후) -> filtered(자동필터 통과) -> approved(표본검수/배치승인) -> rejected
     status: Mapped[str] = mapped_column(String(8), default="draft", index=True)

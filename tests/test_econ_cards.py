@@ -112,13 +112,25 @@ def test_auto_filter_footnote_mismatch():
 
 @respx.mock
 def test_generate_one_good_card_ends_up_filtered(client, login_env):
+    from app.models import KnowledgeChunk
+
     respx.head("https://www.bok.or.kr/x").mock(return_value=Response(200))
     llm = FakeSearchLLM([(_good_card(), 2)])
     with SessionLocal() as db:
+        db.add(
+            KnowledgeChunk(
+                source="bok_700",
+                term="기준금리",
+                content="중앙은행 정책금리",
+                embedding=[0.0] * 4,
+            )
+        )
+        db.commit()
         card = generate_one(db, llm, batch_id="b1")
         assert card is not None
         assert card.status == "filtered"
         assert card.reject_reason is None
+        assert card.hard_terms == ["기준금리"]
 
 
 @respx.mock

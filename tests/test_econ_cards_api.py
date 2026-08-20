@@ -24,6 +24,7 @@ def _make_card(db, title="카드", status="approved"):
     c = EconCard(
         title=title,
         body="본문이에요.(1)",
+        hard_terms=None,
         sources=[{"number": 1, "org": "한국은행", "doc_title": "문서", "url": "https://bok.or.kr/x"}],
         batch_id="b",
         status=status,
@@ -71,7 +72,19 @@ def test_detail_of_approved_card(client):
     r = client.get(f"/econ-card/{c.id}")
     assert r.status_code == 200
     assert r.json()["title"] == "상세용"
+    assert r.json()["hard_terms"] is None
     assert r.json()["sources"][0]["org"] == "한국은행"
+
+
+def test_detail_exposes_hard_terms(client):
+    with SessionLocal() as db:
+        c = _make_card(db, "어려운 용어")
+        c.hard_terms = ["기준금리"]
+        db.commit()
+        card_id = c.id
+    r = client.get(f"/econ-card/{card_id}")
+    assert r.status_code == 200
+    assert r.json()["hard_terms"] == ["기준금리"]
 
 
 def test_detail_of_non_approved_card_is_404(client):
