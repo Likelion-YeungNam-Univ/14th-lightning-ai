@@ -1,11 +1,12 @@
 """OpenAI 호출 래퍼 — LLM 호출은 app/ai/ 밖에서 하지 않는다 (CLAUDE.md).
 
-structured output(JSON 스키마 강제)만 사용한다. 테스트는 같은 인터페이스의
-페이크 클라이언트를 주입한다(실 키 불요, DoD 3).
+structured output(JSON 스키마 강제)을 기본으로 쓰고, 용어 풀이 SSE(#71)만 평문 스트리밍
+(`stream_text`)을 쓴다. 테스트는 같은 인터페이스의 페이크 클라이언트를 주입한다(실 키 불요, DoD 3).
 """
 
 import json
 import logging
+from collections.abc import Iterator
 
 import httpx
 
@@ -128,6 +129,55 @@ class OpenAIClient:
             return json.loads(text), search_count
         except (KeyError, StopIteration, json.JSONDecodeError) as e:
             raise LLMError(f"OpenAI 응답 파싱 실패: {e}") from e
+
+    def stream_text(
+        self, *, system: str, user: str, reasoning_effort: str | None = None
+    ) -> Iterator[str]:
+        """평문 스트리밍 — 토큰 조각을 도착 순서대로 낸다 (용어 풀이 SSE, #71).
+
+        chat.completions `stream: true`는 SSE(`data: {...}` 줄)로 오고 `data: [DONE]`으로 끝난다.
+        JSON 스키마는 부분 문자열을 다룰 수 없어 여기선 쓰지 않는다 — 호출자가 누적 텍스트에
+        가드레일을 건다. 소비자가 중간에 멈추면(break/close) `with` 블록이 연결을 닫는다.
+        """
+        body = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "stream": True,
+        }
+        if reasoning_effort:
+            body["reasoning_effort"] = reasoning_effort
+        try:
+            with httpx.stream(
+                "POST",
+                API_URL,
+                json=body,
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                timeout=self.timeout,
+            ) as resp:
+                if resp.status_code >= 400:
+                    resp.read()
+                    raise LLMError(f"OpenAI HTTP {resp.status_code}: {resp.text[:200]}")
+                for line in resp.iter_lines():
+                    if not line.startswith("data:"):
+                        continue  # 빈 줄(이벤트 구분)·주석
+                    payload = line[5:].strip()
+                    if payload == "[DONE]":
+                        return
+                    try:
+                        chunk = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    piece = (choices[0].get("delta") or {}).get("content")
+                    if piece:
+                        yield piece
+        except httpx.HTTPError as e:
+            raise LLMError(f"OpenAI 스트림 실패: {e}") from e
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """text-embedding-3-small 임베딩 — RAG 적재·검색 공용 (확정사항 5절)."""
