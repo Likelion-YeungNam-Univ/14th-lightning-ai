@@ -18,6 +18,7 @@ class RoomListItem(BaseModel):
     target_price: int
     judge_date: date
     participant_count: int
+    max_participants: int  # #95 — 방별 정원(2~4). 마이그레이션 전 기존 방은 4
     total_points: int
     up: SideCount
     down: SideCount
@@ -43,10 +44,15 @@ class RoomCreateRequest(BaseModel):
     judge_date: date
     body: str | None = None
     amount: int = Field(ge=100, le=1000)  # 생성자 자동 참여 베팅 금액 (C-4.1.2, C-6.1.3)
+    max_participants: int = Field(default=4, ge=2, le=4)  # #95 — 방 정원(생성자 포함)
 
 
 class RoomCreateResponse(BaseModel):
     room: RoomDetailResponse
+
+
+class RoomDeleteResponse(BaseModel):
+    removed: bool  # #95 — 생성자 본인·open·타인 미참여일 때만 true
 
 
 class ChartSymbolResponse(BaseModel):
