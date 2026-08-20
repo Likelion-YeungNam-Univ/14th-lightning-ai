@@ -8,6 +8,7 @@ from app.schemas.comments import (
     CommentCreateResponse,
     CommentDeleteResponse,
     CommentItem,
+    CommentLikeResponse,
     CommentListResponse,
 )
 from app.schemas.rooms import (
@@ -65,9 +66,12 @@ def create_entry(
 
 
 @router.get("/rooms/{room_id}/comments", response_model=CommentListResponse)
-def list_comments(room_id: int, session: OptionalSession, db: DbDep) -> CommentListResponse:
+def list_comments(
+    room_id: int, session: OptionalSession, db: DbDep, sort: str = "likes"
+) -> CommentListResponse:
+    """이슈 #80(L-3) — sort=likes(기본, 동점 최신순) | recent."""
     viewer_id = session.id if session is not None else None
-    items = comment_service.list_comments(db, room_id, viewer_id)
+    items = comment_service.list_comments(db, room_id, viewer_id, sort=sort)
     return CommentListResponse(items=[CommentItem(**c) for c in items])
 
 
@@ -84,3 +88,13 @@ def create_comment(
 @router.delete("/comments/{comment_id}", response_model=CommentDeleteResponse)
 def delete_comment(comment_id: int, session: AuthSession, db: DbDep) -> CommentDeleteResponse:
     return CommentDeleteResponse(removed=comment_service.delete_comment(db, session, comment_id))
+
+
+@router.post("/comments/{comment_id}/like", response_model=CommentLikeResponse)
+def like_comment(comment_id: int, session: AuthSession, db: DbDep) -> CommentLikeResponse:
+    return CommentLikeResponse(**comment_service.like_comment(db, session, comment_id))
+
+
+@router.delete("/comments/{comment_id}/like", response_model=CommentLikeResponse)
+def unlike_comment(comment_id: int, session: AuthSession, db: DbDep) -> CommentLikeResponse:
+    return CommentLikeResponse(**comment_service.unlike_comment(db, session, comment_id))
