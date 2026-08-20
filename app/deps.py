@@ -74,6 +74,21 @@ def get_current_session(request: Request, db: DbDep) -> UserSession:
 CurrentSession = Annotated[UserSession, Depends(get_current_session)]
 
 
+def get_raw_session(request: Request, db: DbDep) -> UserSession:
+    """#74 — 주인 세션 치환 **없이** 쿠키 세션 그대로. 인증 라우터 전용.
+
+    로그인·로그아웃은 '이 브라우저의 세션'에 user_id를 세우거나 지우는 일이라
+    치환된 주인 세션을 받으면 엉뚱한 행을 고치게 된다."""
+    session_id = request.cookies.get(COOKIE_NAME)
+    session = db.get(UserSession, session_id) if session_id else None
+    if session is None or session.expires_at < utcnow():
+        raise AppError("no_session", "세션이 없거나 만료되었습니다", status_code=401)
+    return session
+
+
+RawSession = Annotated[UserSession, Depends(get_raw_session)]
+
+
 def get_optional_session(request: Request, db: DbDep) -> UserSession | None:
     """무인증 엔드포인트용 — 세션이 있으면 활용(already_added 등), 없어도 동작."""
     session_id = request.cookies.get(COOKIE_NAME)
