@@ -94,6 +94,11 @@ def _room_aggregates(db: Session, room_id: int) -> dict:
     }
 
 
+def room_capacity(room: BettingRoom) -> int:
+    """#95 — 방 정원. 마이그레이션 전 기존 방(NULL)은 4(기존 상수)로 간주한다."""
+    return room.max_entrants or 4
+
+
 def _to_list_item(room: BettingRoom, agg: dict) -> dict:
     return {
         "id": room.id,
@@ -101,6 +106,7 @@ def _to_list_item(room: BettingRoom, agg: dict) -> dict:
         "target_price": room.target_price,
         "judge_date": room.judge_date,
         "status": room.status,
+        "max_participants": room_capacity(room),
         **agg,
     }
 
@@ -141,6 +147,7 @@ def create_room(
     judge_date_: date,
     body: str | None,
     amount: int,
+    max_participants: int = 4,
     today: date | None = None,
 ) -> dict:
     """C-4.1 — 방 생성. 생성자는 자기 목표가 방향(up)에 자동 참여한다(C-4.1.2).
@@ -214,6 +221,7 @@ def create_room(
         target_price=target_price,
         judge_date=judge_date_,
         body=body,
+        max_entrants=max_participants,
         status="open",
     )
     db.add(room)
@@ -222,3 +230,32 @@ def create_room(
     add_ledger_entry(db, session.id, "bet", -amount, ref_type="room", ref_id=room.id)
     db.commit()
     return get_room(db, room.id)
+
+
+def delete_room(db: Session, session: UserSession, room_id: int) -> bool:
+    """#95 — 방 삭제. 생성자만 + open 상태 + 다른 참여자가 없을 때만.
+
+    타인이 참여한 방을 생성자가 무르면 상대의 베팅 판단을 강제로 되돌리는 것이라 차단한다
+    (환급되더라도 "이길 판을 접게 만드는" 공정성 문제 — C-6 취지). 성공 시 생성자 자동
+    베팅을 환급하고 방을 삭제한다(참여·댓글·좋아요는 FK CASCADE, 원장 기록은 남는다).
+    """
+    room = db.get(BettingRoom, room_id)
+    if room is None:
+        raise AppError("unknown_room", "존재하지 않는 베팅방입니다", 404)
+    if room.creator_session_id != session.id:
+        raise AppError("not_room_owner", "본인이 만든 방만 삭제할 수 있습니다", 403)
+    if room.status != "open":
+        raise AppError(
+            "room_not_open", "이미 정산됐거나 진행 중이 아닌 방은 삭제할 수 없습니다", 400
+        )
+
+    entries = db.query(BettingEntry).filter(BettingEntry.room_id == room_id).all()
+    if any(e.session_id != session.id for e in entries):
+        raise AppError("room_has_entrants", "다른 참여자가 있는 방은 삭제할 수 없습니다", 400)
+    for entry in entries:  # 생성자 자동 베팅 환급 — 원장 합계가 0이 되게
+        add_ledger_entry(
+            db, entry.session_id, "refund", entry.amount, ref_type="room", ref_id=room_id
+        )
+    db.delete(room)
+    db.commit()
+    return True
