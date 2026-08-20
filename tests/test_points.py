@@ -6,7 +6,7 @@
 3. 충전 후 잔액이 상한(30,000P)을 넘으면 결제 승인 API를 부르기 전에 차단
 4. 토스 승인 API가 실패 응답을 주면 적립하지 않는다 — 클라이언트 콜백만 믿지 않는다(C-8.2)
 5. 승인 성공 시 원장에 charge 행이 남고 잔액에 반영된다
-6. 피자 진행률 계산(보유/18,000P)
+6. 피자 진행률 계산(보유/23,000P)
 7. 같은 order_id로 두 번 충전 요청 → 두 번째는 already_charged, 이중 적립 안 됨
 8. 요청 body의 amount가 아니라 승인 응답의 totalAmount로만 적립한다
 9. 토스 시크릿 키가 test_sk_ 접두사가 아니면 충전 자체를 거부한다
@@ -37,7 +37,7 @@ def test_get_points_no_login_needed(client):
     assert r.status_code == 200
     assert r.json() == {
         "balance": 0,
-        "pizza_progress": {"held": 0, "target": 18000, "percent": 0},
+        "pizza_progress": {"held": 0, "target": 23000, "percent": 0},
     }
 
 
@@ -126,7 +126,7 @@ def test_charge_success_updates_balance_and_progress(client, login_env, monkeypa
 
     progress = client.get("/me/points").json()
     assert progress["balance"] == 10000
-    assert progress["pizza_progress"] == {"held": 10000, "target": 18000, "percent": 56}
+    assert progress["pizza_progress"] == {"held": 10000, "target": 23000, "percent": 43}
 
 
 def test_charge_duplicate_order_id_blocked(client, login_env, monkeypatch):
