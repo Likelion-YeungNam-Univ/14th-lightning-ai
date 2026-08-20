@@ -100,15 +100,27 @@ def _confirm_toss_payment(payment_key: str, order_id: str, amount: int) -> dict:
 
 
 def charge_points(
-    db: Session, session: UserSession, *, order_id: str, payment_key: str, amount: int
+    db: Session,
+    session: UserSession,
+    *,
+    order_id: str | None,
+    payment_key: str | None,
+    amount: int,
 ) -> dict:
     """C-8.2 — 충전. 승인 전 상한 확인(C-8.2.1) → 승인 API 호출 → 적립을 한 트랜잭션으로.
 
     **B-3 리뷰 반영**: `order_id`를 원장에 미리 심어(`ref_key` unique) 같은 결제를
     두 번 적립하지 못하게 막고, 승인 응답의 `totalAmount`·`status`·`orderId`를 직접
     검증한 뒤 그 값으로만 적립한다 — 요청 body의 amount를 그대로 믿지 않는다.
+
+    **이슈 #83**: order_id·payment_key를 둘 다 생략하면 토스 승인 호출 없이 바로 적립하는
+    테스트 경로를 탄다. 이미 `test_sk_` 키만 허용하는 프로젝트라 실결제 위험은 없고,
+    시연·QA에서 결제창을 매번 통과할 필요가 없게 하려는 목적. 하나만 보내면 400.
     """
-    _check_test_key_configured()
+    if (order_id is None) != (payment_key is None):
+        raise AppError(
+            "invalid_request", "order_id와 payment_key는 둘 다 보내거나 둘 다 생략해야 합니다", 400
+        )
     if amount not in CHARGE_PRODUCTS:
         raise AppError("invalid_amount", "충전 금액은 5,000/10,000/30,000P 중 하나여야 합니다", 400)
 
@@ -123,6 +135,12 @@ def charge_points(
             {"current": current, "cap": POINT_CAP},
         )
 
+    if order_id is None:  # 이슈 #83 — 테스트 경로, 토스 승인 없이 바로 적립
+        add_ledger_entry(db, locked.id, "charge", amount, ref_type="payment")
+        db.commit()
+        return {"balance": balance(db, locked.id), "charged": amount}
+
+    _check_test_key_configured()
     placeholder = add_ledger_entry(db, locked.id, "charge", 0, ref_type="payment", ref_key=order_id)
     try:
         db.flush()  # ref_key unique 위반 — 같은 order_id 재요청(B-3)
