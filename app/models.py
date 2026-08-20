@@ -396,6 +396,23 @@ class RoomComment(Base):
     snapshot_json: Mapped[dict | None] = mapped_column(JSON)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # 비정규화 카운터(이슈 #80, L-4.3) — 등록·취소 시 comment_like와 같은 트랜잭션에서 증감
+    like_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+class CommentLike(Base):
+    """이슈 #80(L-4) — 댓글 좋아요. (comment_id, session_id) 유니크로 중복 차단(L-2.3)."""
+
+    __tablename__ = "comment_like"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    comment_id: Mapped[int] = mapped_column(
+        ForeignKey("room_comment.id", ondelete="CASCADE"), index=True
+    )
+    session_id: Mapped[str] = mapped_column(ForeignKey("session.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("comment_id", "session_id", name="uq_comment_like"),)
 
 
 class PointLedger(Base):

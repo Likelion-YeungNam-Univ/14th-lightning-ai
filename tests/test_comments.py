@@ -326,3 +326,160 @@ def test_comment_body_blank_rejected(client, login_env):
     _login(client)
     r = client.post(f"/rooms/{room_id}/comments", json={"body": "   "})
     assert r.status_code == 422
+
+
+# ── 이슈 #80 — 댓글 좋아요 ──────────────────────────────────────────────
+#
+# 예상 문제 지점:
+# 1. 좋아요/취소 토글, 카운트 증감
+# 2. 중복 좋아요는 에러가 아니라 현재 상태 그대로(멱등, L-6)
+# 3. 자기 댓글엔 좋아요 불가(L-2.4)
+# 4. 비로그인 좋아요 시도 → 401
+# 5. 없는/삭제된 댓글에 좋아요 → 404
+# 6. 안 누른 상태에서 취소해도 에러 아님(멱등)
+# 7. 기본 정렬은 좋아요순(동점이면 최신순), sort=recent로 전환 가능
+
+
+def _second_client():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    other = TestClient(app)
+    other.post("/session")
+    other.post("/auth/mock-login", json={"id": "demo", "password": "pw1234"})
+    return other
+
+
+def test_comment_like_toggle(client, login_env):
+    with SessionLocal() as db:
+        room_id = _make_room(db, stock_code="555550", target_price=93000)
+    _login(client)
+    comment_id = client.post(f"/rooms/{room_id}/comments", json={"body": "작성자 댓글"}).json()[
+        "item"
+    ]["id"]
+
+    liker = _second_client()
+    r = liker.post(f"/comments/{comment_id}/like")
+    assert r.status_code == 200
+    assert r.json() == {"liked": True, "like_count": 1}
+
+    items = client.get(f"/rooms/{room_id}/comments").json()["items"]
+    assert items[0]["like_count"] == 1
+
+    r2 = liker.delete(f"/comments/{comment_id}/like")
+    assert r2.status_code == 200
+    assert r2.json() == {"liked": False, "like_count": 0}
+
+
+def test_comment_like_is_idempotent(client, login_env):
+    """중복 POST는 에러가 아니라 현재 상태를 그대로 반환한다(L-6)."""
+    with SessionLocal() as db:
+        room_id = _make_room(db, stock_code="555550", target_price=94000)
+    _login(client)
+    comment_id = client.post(f"/rooms/{room_id}/comments", json={"body": "댓글"}).json()["item"][
+        "id"
+    ]
+
+    liker = _second_client()
+    first = liker.post(f"/comments/{comment_id}/like")
+    second = liker.post(f"/comments/{comment_id}/like")
+    assert first.json() == second.json() == {"liked": True, "like_count": 1}
+
+
+def test_comment_unlike_without_like_is_idempotent(client, login_env):
+    with SessionLocal() as db:
+        room_id = _make_room(db, stock_code="555550", target_price=95000)
+    _login(client)
+    comment_id = client.post(f"/rooms/{room_id}/comments", json={"body": "댓글"}).json()["item"][
+        "id"
+    ]
+
+    liker = _second_client()
+    r = liker.delete(f"/comments/{comment_id}/like")
+    assert r.status_code == 200
+    assert r.json() == {"liked": False, "like_count": 0}
+
+
+def test_comment_self_like_blocked(client, login_env):
+    with SessionLocal() as db:
+        room_id = _make_room(db, stock_code="555550", target_price=96000)
+    _login(client)
+    comment_id = client.post(f"/rooms/{room_id}/comments", json={"body": "내 댓글"}).json()[
+        "item"
+    ]["id"]
+
+    r = client.post(f"/comments/{comment_id}/like")
+    assert r.status_code == 400
+    assert r.json()["code"] == "self_like_blocked"
+
+
+def test_comment_like_requires_login(client, login_env):
+    with SessionLocal() as db:
+        room_id = _make_room(db, stock_code="555550", target_price=97000)
+    _login(client)
+    comment_id = client.post(f"/rooms/{room_id}/comments", json={"body": "댓글"}).json()["item"][
+        "id"
+    ]
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as anon:
+        anon.post("/session")  # 세션은 있되 로그인은 안 한 상태
+        r = anon.post(f"/comments/{comment_id}/like")
+        assert r.status_code == 401
+        assert r.json()["code"] == "login_required"
+
+
+def test_comment_like_unknown_comment(client, login_env):
+    _login(client)
+    r = client.post("/comments/999999/like")
+    assert r.status_code == 404
+    assert r.json()["code"] == "unknown_comment"
+
+
+def test_comment_like_deleted_comment_blocked(client, login_env):
+    with SessionLocal() as db:
+        room_id = _make_room(db, stock_code="555550", target_price=98000)
+    _login(client)
+    comment_id = client.post(f"/rooms/{room_id}/comments", json={"body": "곧 지울 댓글"}).json()[
+        "item"
+    ]["id"]
+    client.delete(f"/comments/{comment_id}")
+
+    liker = _second_client()
+    r = liker.post(f"/comments/{comment_id}/like")
+    assert r.status_code == 404
+    assert r.json()["code"] == "comment_deleted"
+
+
+def test_comments_default_sort_by_likes_then_recent(client, login_env):
+    """좋아요순이 최신순과 다른 경우로 검증 — 먼저 쓴 댓글이 좋아요를 더 받으면 앞에 온다."""
+    with SessionLocal() as db:
+        room_id = _make_room(db, stock_code="555550", target_price=99000)
+    _login(client)
+    r1 = client.post(f"/rooms/{room_id}/comments", json={"body": "먼저, 좋아요 많음"})
+    older_high = r1.json()["item"]["id"]
+    r2 = client.post(f"/rooms/{room_id}/comments", json={"body": "나중, 좋아요 없음"})
+    newer_low = r2.json()["item"]["id"]
+    liker = _second_client()
+    liker.post(f"/comments/{older_high}/like")
+
+    items = client.get(f"/rooms/{room_id}/comments").json()["items"]
+    assert [i["id"] for i in items] == [older_high, newer_low]  # 좋아요순 — 먼저 쓴 게 앞
+
+    recent = client.get(f"/rooms/{room_id}/comments", params={"sort": "recent"}).json()["items"]
+    assert [i["id"] for i in recent] == [newer_low, older_high]  # 최신순 — 나중 쓴 게 앞
+
+
+def test_comments_tie_break_recent_when_likes_equal(client, login_env):
+    with SessionLocal() as db:
+        room_id = _make_room(db, stock_code="555550", target_price=100000)
+    _login(client)
+    older = client.post(f"/rooms/{room_id}/comments", json={"body": "먼저"}).json()["item"]["id"]
+    newer = client.post(f"/rooms/{room_id}/comments", json={"body": "나중"}).json()["item"]["id"]
+
+    items = client.get(f"/rooms/{room_id}/comments").json()["items"]
+    assert [i["id"] for i in items] == [newer, older]  # 좋아요 동점 — 최신이 먼저

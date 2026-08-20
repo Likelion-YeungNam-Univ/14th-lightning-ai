@@ -14,6 +14,8 @@ class CommentItem(BaseModel):
     deleted: bool
     saved_card_snapshot: dict | None  # 첨부 시점 스냅샷 복사본(C-5.1.3) — 삭제된 댓글은 None
     created_at: datetime
+    like_count: int  # 이슈 #80(L-1.2)
+    liked_by_me: bool  # 조회자가 이미 눌렀는지(L-1.4) — 비로그인/미조회 세션이면 항상 False
 
 
 class CommentListResponse(BaseModel):
@@ -39,3 +41,10 @@ class CommentCreateResponse(BaseModel):
 
 class CommentDeleteResponse(BaseModel):
     removed: bool  # 멱등 — 이미 없었거나 이미 삭제됐으면 false
+
+
+class CommentLikeResponse(BaseModel):
+    """이슈 #80(L-6) — POST/DELETE 공용. 이미 같은 상태면 에러 아니라 현재 상태 그대로."""
+
+    liked: bool
+    like_count: int
