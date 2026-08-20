@@ -7,9 +7,10 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import get_db
 from app.errors import AppError
-from app.models import UserSession
+from app.models import AppUser, UserSession
 
 COOKIE_NAME = "assit_session"
 _KST = ZoneInfo("Asia/Seoul")
@@ -37,12 +38,34 @@ def today_kst() -> date:
     return now_kst().date()
 
 
+def _resolve_primary(db: Session, session: UserSession) -> UserSession:
+    """#74 — 로그인된 세션이면 계정의 주인 세션으로 치환한다.
+
+    모든 데이터(종목·저장카드·포인트·베팅·댓글)는 주인 세션에 귀속되므로, 여기서 바꿔치면
+    서비스 코드 전체가 수정 없이 '같은 계정 = 같은 session.id'가 된다. 주인 세션의 만료는
+    접근 때마다 연장 — 계정 데이터가 30일 TTL로 죽지 않게."""
+    if session.user_id is None:
+        return session
+    user = db.get(AppUser, session.user_id)
+    if user is None:  # 방어 — 계정이 지워졌으면 익명으로 돌아간다
+        session.user_id = None
+        return session
+    primary = db.get(UserSession, user.primary_session_id)
+    if primary is None:
+        return session
+    primary.expires_at = utcnow() + timedelta(days=settings.session_ttl_days)
+    return primary
+
+
 def get_current_session(request: Request, db: DbDep) -> UserSession:
-    """쿠키의 세션을 로드한다. 없거나 만료면 401 no_session — 프론트는 POST /session으로 재발급."""
+    """쿠키의 세션을 로드한다. 없거나 만료면 401 no_session — 프론트는 POST /session으로 재발급.
+
+    실계정 로그인 세션(#74)은 주인 세션으로 치환돼 반환된다."""
     session_id = request.cookies.get(COOKIE_NAME)
     session = db.get(UserSession, session_id) if session_id else None
     if session is None or session.expires_at < utcnow():
         raise AppError("no_session", "세션이 없거나 만료되었습니다", status_code=401)
+    session = _resolve_primary(db, session)
     session.last_seen_at = utcnow()  # 재방문 지표(F-8.2)의 기준값
     db.commit()
     return session
@@ -51,12 +74,34 @@ def get_current_session(request: Request, db: DbDep) -> UserSession:
 CurrentSession = Annotated[UserSession, Depends(get_current_session)]
 
 
+def get_raw_session(request: Request, db: DbDep) -> UserSession:
+    """#74 — 주인 세션 치환 **없이** 쿠키 세션 그대로. 인증 라우터 전용.
+
+    로그인·로그아웃은 '이 브라우저의 세션'에 user_id를 세우거나 지우는 일이라
+    치환된 주인 세션을 받으면 엉뚱한 행을 고치게 된다."""
+    session_id = request.cookies.get(COOKIE_NAME)
+    session = db.get(UserSession, session_id) if session_id else None
+    if session is None or session.expires_at < utcnow():
+        raise AppError("no_session", "세션이 없거나 만료되었습니다", status_code=401)
+    return session
+
+
+RawSession = Annotated[UserSession, Depends(get_raw_session)]
+
+
+# 라우터에서 응답 데이터만 계정 기준으로 맞출 때 쓰는 공개 별칭 (#74, sessions.py)
+resolve_primary = _resolve_primary
+
+
 def get_optional_session(request: Request, db: DbDep) -> UserSession | None:
     """무인증 엔드포인트용 — 세션이 있으면 활용(already_added 등), 없어도 동작."""
     session_id = request.cookies.get(COOKIE_NAME)
     session = db.get(UserSession, session_id) if session_id else None
     if session is not None and session.expires_at < utcnow():
         return None
+    if session is not None:
+        session = _resolve_primary(db, session)  # 로그인돼 있으면 여기서도 계정 데이터를 본다
+        db.commit()
     return session
 
 
@@ -64,8 +109,11 @@ OptionalSession = Annotated[UserSession | None, Depends(get_optional_session)]
 
 
 def require_auth(session: CurrentSession) -> UserSession:
-    """F-1.3 — 종목 추가·카드 저장 두 지점에서만 쓰는 인증 게이트."""
-    if not session.authenticated:
+    """F-1.3 — 인증 게이트. 모의 로그인(authenticated) 또는 실계정(user_id, #74) 어느 쪽이든 통과.
+
+    주의: 이 시점의 session은 이미 주인 세션으로 치환된 뒤다 — 주인 세션은 가입 때
+    user_id가 세워지므로 실계정 로그인이면 항상 user_id가 있다."""
+    if not session.authenticated and session.user_id is None:
         raise AppError("login_required", "로그인이 필요합니다", status_code=401)
     return session
 
