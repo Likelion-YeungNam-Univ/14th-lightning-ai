@@ -21,6 +21,8 @@ from app.ai.rag import find_exact_term, search_knowledge
 logger = logging.getLogger(__name__)
 
 KNOWLEDGE_SOURCES = ("bok_700", "dart_doctype", "sec_formtype")
+# 사용자가 기다리는 유일한 LLM 경로(F-5.4) — 추론 토큰을 끄면 6.8s → 2.3s, 근거 밀착은 유지 (#69)
+REASONING_EFFORT = "minimal"
 TAB_DESC = {
     "youtube": "유튜브 영상 목록",
     "disclosure": "기업 공시 카드",
@@ -50,7 +52,12 @@ def generate_term_explanation(
         grounds=grounds,
     )
 
-    out = client.generate_json(system=TERM_EXPLAIN_SYSTEM, user=user, schema=TERM_EXPLAIN_SCHEMA)
+    out = client.generate_json(
+        system=TERM_EXPLAIN_SYSTEM,
+        user=user,
+        schema=TERM_EXPLAIN_SCHEMA,
+        reasoning_effort=REASONING_EFFORT,
+    )
     explanation = (out.get("explanation") or "").strip()
     bad = find_violations(explanation)
     if bad:  # 재생성 1회 → 그래도 위반이면 비운다 (F-5.5)
@@ -59,6 +66,7 @@ def generate_term_explanation(
             system=TERM_EXPLAIN_SYSTEM,
             user=user + RETRY_SUFFIX.format(reasons=reasons),
             schema=TERM_EXPLAIN_SCHEMA,
+            reasoning_effort=REASONING_EFFORT,
         )
         explanation = (out.get("explanation") or "").strip()
         if find_violations(explanation):

@@ -32,9 +32,11 @@ class FakeLLM:
     def __init__(self, outputs):
         self.outputs = list(outputs)
         self.calls: list[str] = []
+        self.efforts: list[str | None] = []  # 호출별 reasoning_effort (#69)
 
-    def generate_json(self, *, system, user, schema, name="output"):
+    def generate_json(self, *, system, user, schema, name="output", reasoning_effort=None):
         self.calls.append(user)
+        self.efforts.append(reasoning_effort)
         assert self.outputs, "예상보다 많은 LLM 호출"
         out = self.outputs.pop(0)
         if isinstance(out, Exception):
