@@ -89,6 +89,10 @@ def get_raw_session(request: Request, db: DbDep) -> UserSession:
 RawSession = Annotated[UserSession, Depends(get_raw_session)]
 
 
+# 라우터에서 응답 데이터만 계정 기준으로 맞출 때 쓰는 공개 별칭 (#74, sessions.py)
+resolve_primary = _resolve_primary
+
+
 def get_optional_session(request: Request, db: DbDep) -> UserSession | None:
     """무인증 엔드포인트용 — 세션이 있으면 활용(already_added 등), 없어도 동작."""
     session_id = request.cookies.get(COOKIE_NAME)

@@ -3,8 +3,9 @@ from pydantic import BaseModel, Field
 
 class SessionResponse(BaseModel):
     created: bool  # 이번 호출에서 새로 발급됐는가 (기존 세션 재사용이면 False)
-    authenticated: bool
-    stocks: list[str]  # 등록 종목코드 (노출 순서대로)
+    authenticated: bool  # 모의 로그인 또는 실계정(#74) 어느 쪽이든 true
+    stocks: list[str]  # 등록 종목코드 (노출 순서대로) — 실계정이면 계정(주인 세션) 기준
+    nickname: str | None = None  # 실계정 로그인 상태면 닉네임 (#74)
 
 
 class LoginRequest(BaseModel):

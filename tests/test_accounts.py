@@ -154,3 +154,19 @@ def test_mock_login_coexists(client, login_env):
     r = client.post("/auth/mock-login", json={"id": "demo", "password": "pw1234"})
     assert r.status_code == 200 and r.json()["authenticated"] is True
     assert client.post("/me/stocks", json={"stock_codes": ["555550"]}).status_code == 200
+
+
+def test_post_session_reflects_account(client, login_env):
+    """POST /session(앱 첫 진입)도 계정 데이터를 반영해야 초기 화면이 다른 API와 일치한다."""
+    _signup(client, "acc_entry1")
+    client.post("/me/stocks", json={"stock_codes": ["555550"]})
+
+    r = client.post("/session")  # 로그인된 쿠키로 앱 재진입
+    body = r.json()
+    assert body["created"] is False
+    assert body["authenticated"] is True and body["nickname"] == "승래"
+    assert "555550" in body["stocks"]  # 계정(주인 세션) 기준
+
+    fresh = client.__class__(client.app)  # 익명은 기존과 동일 — nickname 없음
+    anon = fresh.post("/session").json()
+    assert anon["authenticated"] is False and anon["nickname"] is None
