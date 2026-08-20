@@ -53,6 +53,11 @@ def _resolve_primary(db: Session, session: UserSession) -> UserSession:
     primary = db.get(UserSession, user.primary_session_id)
     if primary is None:
         return session
+    # 재각인(#90) — 가입 브라우저에선 쿠키 세션 == 주인 세션이라 로그아웃이 주인 세션의
+    # user_id까지 지운다. 그대로 두면 재로그인해도 인증 게이트(require_auth)가 치환된
+    # 주인 세션에서 user_id를 못 보고 401을 반복한다. 치환 자체가 "로그인된 세션을 통해
+    # 왔다"는 증명이므로 여기서 되살린다.
+    primary.user_id = user.id
     primary.expires_at = utcnow() + timedelta(days=settings.session_ttl_days)
     return primary
 

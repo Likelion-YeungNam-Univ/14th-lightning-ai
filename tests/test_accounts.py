@@ -125,6 +125,10 @@ def test_logout_returns_to_anonymous_but_keeps_account(client, login_env):
     client.post("/auth/login", json={"login_id": "acc_logout", "password": "password123"})
     back = _my_codes(client)
     assert "555550" in back
+    # 재로그인 후 인증 게이트 통과 (#90) — 로그아웃이 주인 세션 user_id를 지워도
+    # 치환 시 재각인돼야 한다. 이전 버그: 여기서 401 login_required 무한 루프
+    r = client.post("/me/stocks", json={"stock_codes": ["111115"]})
+    assert r.status_code == 200
 
 
 def test_resignup_on_same_session_gets_fresh_primary(client, login_env):
