@@ -19,7 +19,8 @@ from app.models import PointLedger, UserSession
 
 POINT_CAP = 30_000  # C-8.2.1
 CHARGE_PRODUCTS = (5_000, 10_000, 30_000)  # C-8.2
-GIFTICON_PRICE = 18_000  # 피자 한 판 (C-9.1) — 원가보다 낮추지 말 것(부록: 담합 방지 근거)
+# 피자 한 판 (C-9.1, 이슈 #86 — 18,000→23,000) — 원가보다 낮추지 말 것(부록: 담합 방지 근거)
+GIFTICON_PRICE = 23_000
 TOSS_CONFIRM_URL = "https://api.tosspayments.com/v1/payments/confirm"
 
 
