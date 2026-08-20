@@ -155,6 +155,7 @@ def _build_card(db: Session, tab: str, stock: StockMaster, item: SourceItem) -> 
         "title": item.title,
         "summary_short": generated.summary_short if generated else None,
         "summary_full": generated.summary_full if generated else None,
+        "hard_terms": (generated.hard_terms or None) if generated else None,  # #77 탭 풀이 대상
         "source_name": SOURCE_NAMES.get((tab, stock.market), tab),
         "published_at": item.published_at,
         "origin_url": item.origin_url,
