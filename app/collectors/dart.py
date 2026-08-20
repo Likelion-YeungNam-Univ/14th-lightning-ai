@@ -6,6 +6,7 @@ DART는 종목코드가 아니라 8자리 corp_code로 조회된다.
 
 import io
 import logging
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timedelta
@@ -95,6 +96,100 @@ def _funding_total(row: dict) -> int | None:
     return total if seen and total > 0 else None
 
 
+# 이슈 #98 — 정기보고서 3종 재무 슬롯. 제목 "(YYYY.MM)" → (사업연도, 보고서 코드)
+PERIODIC_TYPES = ("사업보고서", "반기보고서", "분기보고서")
+_REPRT_BY_MONTH = {"03": "11013", "06": "11012", "09": "11014", "12": "11011"}
+_FIN_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcnt.json"
+# (응답 account_nm, 카드 라벨) — 주요계정 API의 손익 3종. 은행 등 매출액 없는 업종은 있는 것만
+_FIN_ACCOUNTS = (("매출액", "매출액"), ("영업이익", "영업이익"), ("당기순이익(손실)", "당기순이익"))
+_PERIOD_RE = re.compile(r"\((\d{4})\.(\d{2})\)")
+
+
+def _format_krw(raw: str) -> str | None:
+    """ "171,499,470,000,000" → "171.5조 원". 숫자 아니면 None(틀린 값을 만들지 않는다)."""
+    cleaned = raw.replace(",", "").strip()
+    sign = "-" if cleaned.startswith("-") else ""
+    digits = cleaned.lstrip("-")
+    if not digits.isdigit():
+        return None
+    value = int(digits)
+    if value >= 10**12:
+        return f"{sign}{value / 10**12:.1f}조 원"
+    if value >= 10**8:
+        return f"{sign}{value // 10**8:,}억 원"
+    return f"{sign}{value:,}원"
+
+
+def _report_period(title: str) -> tuple[str, str] | None:
+    """제목의 "(2026.06)" → ("2026", "11012"). 없으면 None — 보강 없이 진행."""
+    m = _PERIOD_RE.search(title)
+    if m is None:
+        return None
+    year, month = m.group(1), m.group(2)
+    code = _REPRT_BY_MONTH.get(month)
+    return (year, code) if code else None
+
+
+def _enrich_periodic_financials(db: Session, stock: StockMaster, items: list) -> None:
+    """이슈 #98 — 정기보고서에 매출·영업이익·순이익 채움 (#53 해외 companyfacts와 같은 패턴).
+
+    fnlttSinglAcnt(주요계정)를 (사업연도, 보고서코드)당 1회 호출해 rcept_no로 조인한다.
+    연결(CFS) 우선, 없으면 개별(OFS). 실측: 반기보고서 IS의 thstrm_amount = 반기 누적.
+    실패는 그룹 단위로 삼킨다 — 제목 기반 요약으로 진행(기존 동작과 동일).
+    """
+    groups: dict[tuple[str, str], list] = {}
+    for item in items:
+        period = _report_period(item.title)
+        if period:
+            groups.setdefault(period, []).append(item)
+    for (year, reprt_code), group in groups.items():
+        try:
+            resp = get_with_retry(
+                _FIN_URL,
+                params={
+                    "crtfc_key": settings.dart_api_key,
+                    "corp_code": stock.corp_code,
+                    "bsns_year": year,
+                    "reprt_code": reprt_code,
+                },
+            )
+            data = resp.json()
+            if data.get("status") != "000":
+                continue  # 013 포함 — 재무 없음이면 제목 기반 요약으로 진행
+            rows = [r for r in data.get("list", []) if r.get("sj_div") == "IS"]
+            fs_div = "CFS" if any(r.get("fs_div") == "CFS" for r in rows) else "OFS"
+            by_account = {}
+            for r in rows:
+                if r.get("fs_div") == fs_div and r.get("account_nm") not in by_account:
+                    by_account[r.get("account_nm")] = r
+            rcept_nos = {r.get("rcept_no") for r in rows}
+            period_name = next(iter(by_account.values()), {}).get("thstrm_nm", "").strip()
+
+            lines, slots = [], []
+            for account_nm, label in _FIN_ACCOUNTS:
+                row = by_account.get(account_nm)
+                if row is None:
+                    continue
+                rendered = _format_krw(str(row.get("thstrm_amount") or ""))
+                if rendered is None:
+                    continue
+                lines.append(f"{label}: {rendered}")
+                slots.append({"label": label, "value": rendered})
+            if not slots:
+                continue
+            fs_name = "연결" if fs_div == "CFS" else "개별"
+            header = f"재무 수치({fs_name}재무제표 주요계정, {period_name})".replace("(, ", "(")
+            for item in group:
+                if item.source_key not in rcept_nos:  # 다른 접수번호(정정 전 원본 등) — 오적재 방지
+                    continue
+                item.content = header + "\n" + "\n".join(lines)
+                item.detail_json = {"slots": slots}
+        except Exception as e:  # 그룹 단위 격리 — 실패해도 목록 수집분은 유효
+            logger.warning(
+                "정기보고서 재무 API 실패 %s/%s-%s: %s", stock.stock_code, year, reprt_code, e
+            )
+
+
 def _enrich_details(db: Session, stock: StockMaster, typed_items: dict, bgn_de: str) -> None:
     """이슈 #18 — 정형 API(자기주식·증자·감자·소송)를 접수번호로 조인해 구조화 필드 저장.
 
@@ -180,6 +275,7 @@ def sync_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
                 items = data.get("list", [])
 
             typed_items: dict[str, list] = {}  # 정형 API 대상 유형 → 아이템 (이슈 #18)
+            periodic_items: list = []  # 정기보고서 3종 — 재무 슬롯 대상 (이슈 #98)
             for it in items:
                 title = it["report_nm"].strip()
                 doc_type = next(
@@ -199,7 +295,10 @@ def sync_disclosures(db: Session, stocks: list[StockMaster]) -> dict:
                 ensure_stock_link(db, item.id, stock.stock_code)
                 if doc_type in load_dart_detail_map():
                     typed_items.setdefault(doc_type, []).append(item)
+                elif doc_type in PERIODIC_TYPES and item.detail_json is None:  # 이슈 #98
+                    periodic_items.append(item)
             _enrich_details(db, stock, typed_items, bgn_de)
+            _enrich_periodic_financials(db, stock, periodic_items)
             db.commit()
             mark_status(db, "disclosure", stock.stock_code, True, f"{len(items)}건")
             stats["stocks"] += 1
