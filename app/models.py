@@ -336,6 +336,8 @@ class BettingRoom(Base):
     target_price: Mapped[int] = mapped_column(Integer)  # 1,000원 단위 (C-4.1.4)
     judge_date: Mapped[date] = mapped_column(Date)
     body: Mapped[str | None] = mapped_column(Text)
+    # #95 — 방별 최대 참여 인원(2~4). NULL(마이그레이션 전 기존 방)은 4로 간주
+    max_entrants: Mapped[int | None] = mapped_column(Integer)
     # open(판가름 전) | pending(정산 재시도 중) | closed(정산 완료) | void(무효)
     status: Mapped[str] = mapped_column(String(8), default="open", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

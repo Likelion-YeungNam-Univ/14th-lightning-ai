@@ -17,6 +17,7 @@ from app.schemas.rooms import (
     ChartSymbolResponse,
     RoomCreateRequest,
     RoomCreateResponse,
+    RoomDeleteResponse,
     RoomDetailResponse,
     RoomListResponse,
 )
@@ -64,8 +65,20 @@ def create_room(body: RoomCreateRequest, session: AuthSession, db: DbDep) -> Roo
         judge_date_=body.judge_date,
         body=body.body,
         amount=body.amount,
+        max_participants=body.max_participants,
     )
     return RoomCreateResponse(room=RoomDetailResponse(**room))
+
+
+@router.delete("/rooms/{room_id}", response_model=RoomDeleteResponse)
+def delete_room(room_id: int, session: AuthSession, db: DbDep) -> RoomDeleteResponse:
+    """#95 — 방 삭제. **로그인 필요 + 생성자 본인만.**
+
+    - 다른 참여자가 있으면 400 `room_has_entrants` — 상대의 베팅을 임의로 무를 수 없다
+    - open 상태만 400 `room_not_open` / 남의 방 403 `not_room_owner` / 없는 방 404
+    - 성공 시 생성자 자동 베팅 환급, 방·참여·댓글 삭제(원장 기록은 보존)
+    """
+    return RoomDeleteResponse(removed=room_service.delete_room(db, session, room_id))
 
 
 @router.get("/stocks/{stock_code}/chart-symbol", response_model=ChartSymbolResponse)

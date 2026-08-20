@@ -10,6 +10,7 @@ from app.deps import now_kst
 from app.errors import AppError
 from app.models import BettingEntry, BettingRoom, UserSession
 from app.services.points import add_ledger_entry, balance, lock_session
+from app.services.rooms import room_capacity
 
 MAX_ENTRANTS = 4  # C-6.1.1 — 진영 무관 방당 최대 4명
 MIN_AMOUNT = 100  # C-6.1.3
@@ -48,7 +49,9 @@ def place_entry(
     if not (MIN_AMOUNT <= amount <= MAX_AMOUNT):
         raise AppError("invalid_amount", f"베팅 금액은 {MIN_AMOUNT}~{MAX_AMOUNT}P여야 합니다", 400)
 
-    room = db.get(BettingRoom, room_id)
+    # #95 — 방 행 잠금: 정원 확인·입장을 직렬화한다(감사 지적 ② — 락 없이는 마지막 자리에
+    # 동시 입장해 정원 초과 가능). sqlite(테스트)에선 no-op, 운영 Postgres에서 직렬화.
+    room = db.query(BettingRoom).filter(BettingRoom.id == room_id).with_for_update().one_or_none()
     if room is None:
         raise AppError("unknown_room", "존재하지 않는 베팅방입니다", 404)
     if room.status != "open":
@@ -62,8 +65,9 @@ def place_entry(
         .filter(BettingEntry.room_id == room_id)
         .scalar()
     )
-    if entrant_count >= MAX_ENTRANTS:  # C-6.1.1
-        raise AppError("room_full", "이 방은 이미 4명이 참여했습니다", 400)
+    capacity = room_capacity(room)  # #95 — 방별 정원(2~4), 기존 방은 4
+    if entrant_count >= capacity:  # C-6.1.1
+        raise AppError("room_full", f"이 방은 이미 {capacity}명이 참여했습니다", 400)
 
     locked = lock_session(db, session.id)  # B-4 — 확인·차감 사이 경합 차단
     current_balance = balance(db, locked.id)
