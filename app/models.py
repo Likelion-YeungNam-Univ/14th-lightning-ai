@@ -32,18 +32,40 @@ MARKET_OVERSEAS = "overseas"
 
 
 class UserSession(Base):
-    """F-1.1 — 데이터 귀속 단위. 계정 테이블은 없다(모의 로그인)."""
+    """F-1.1 — 데이터 귀속 단위. 실계정(#74)은 이 위에 얹힌다 — user_id가 있으면
+    deps가 그 계정의 주인 세션(primary)으로 치환해 모든 데이터가 계정 단위로 이어진다."""
 
     __tablename__ = "session"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     authenticated: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 실계정 로그인 시 세움(#74). FK를 걸지 않는 이유: app_user.primary_session_id와
+    # 상호 참조라 생성·삭제 순서가 꼬인다 — 정합성은 서비스 계층이 보장한다.
+    user_id: Mapped[int | None] = mapped_column(Integer, index=True)
     # F-2.2 — 구분별 마지막 본 종목 (구분 전환 시 복귀 지점)
     last_stock_domestic: Mapped[str | None] = mapped_column(String(12))
     last_stock_overseas: Mapped[str | None] = mapped_column(String(12))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class AppUser(Base):
+    """#74 — 실계정. '나 = 쿠키'의 데이터 유실 문제를 계정이 주인 세션을 기억하는 것으로 해결.
+
+    primary_session_id = 이 계정의 모든 데이터(종목·저장카드·포인트·베팅·댓글)가 귀속된
+    세션. 가입 시점의 쿠키 세션이 그대로 주인이 된다(익명 활동 승계). 이후 어떤 기기에서
+    로그인해도 deps가 주인 세션을 돌려주므로 서비스 코드는 세션만 알면 된다.
+    """
+
+    __tablename__ = "app_user"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    login_id: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    nickname: Mapped[str] = mapped_column(String(12))  # 댓글·베팅방 표시용
+    pw_hash: Mapped[str] = mapped_column(String(256))  # scrypt$salt$hash (표준 라이브러리)
+    primary_session_id: Mapped[str] = mapped_column(ForeignKey("session.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class StockMaster(Base):
