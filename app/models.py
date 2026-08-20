@@ -198,6 +198,8 @@ class GeneratedContent(Base):
     summary_full: Mapped[str | None] = mapped_column(Text)
     label: Mapped[str | None] = mapped_column(String(8))  # positive | neutral | negative
     label_reason: Mapped[str | None] = mapped_column(Text)
+    # #77 — 요약문에 등장하는 지식베이스 표제어(탭하면 풀이). LLM 아닌 사전 대조 산출
+    hard_terms: Mapped[list | None] = mapped_column(JSON)
     locked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
