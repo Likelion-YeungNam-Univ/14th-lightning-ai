@@ -12,7 +12,7 @@
 from app.ai.hard_terms import MAX_TERMS, load_terms, scan_hard_terms
 from app.collectors.base import ensure_stock_link, upsert_source_item
 from app.db import SessionLocal
-from app.models import MARKET_DOMESTIC, GeneratedContent, KnowledgeChunk
+from app.models import MARKET_DOMESTIC, EconCard, GeneratedContent, KnowledgeChunk
 from tests.test_ai import FakeLLM
 
 
@@ -141,3 +141,34 @@ def test_backfill_fills_locked_without_touching_summary(client):
         assert row.hard_terms == ["듀레이션"]  # 목록은 채워지고
         assert row.summary_short == "검수된 요약 — 듀레이션이 길어요."  # 문장은 불변
         assert row.locked is True
+
+
+def test_backfill_fills_econ_card_body_terms(client):
+    from scripts.backfill_hard_terms import main as backfill
+
+    with SessionLocal() as db:
+        _seed_kb(db)
+        card = EconCard(
+            title="기준금리가 뭔가요?",
+            body="기준금리는 중앙은행이 정하는 정책 도구예요.(1)",
+            sources=[
+                {
+                    "number": 1,
+                    "org": "한국은행",
+                    "doc_title": "문서",
+                    "url": "https://www.bok.or.kr/x",
+                }
+            ],
+            batch_id="ht-econ",
+            status="approved",
+            locked=True,
+        )
+        db.add(card)
+        db.commit()
+        card_id = card.id
+
+    backfill()
+
+    with SessionLocal() as db:
+        row = db.get(EconCard, card_id)
+        assert row.hard_terms == ["기준금리"]

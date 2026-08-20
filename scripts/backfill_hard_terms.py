@@ -14,7 +14,7 @@ from sqlalchemy import inspect, text
 
 from app.ai.hard_terms import load_terms, scan_hard_terms
 from app.db import SessionLocal, engine, init_db
-from app.models import GeneratedContent
+from app.models import EconCard, GeneratedContent
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -26,24 +26,36 @@ def main() -> None:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE generated_content ADD COLUMN hard_terms JSON"))
         print("generated_content.hard_terms 컬럼 추가")
+    econ_columns = {c["name"] for c in inspect(engine).get_columns("econ_card")}
+    if "hard_terms" not in econ_columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE econ_card ADD COLUMN hard_terms JSON"))
+        print("econ_card.hard_terms 컬럼 추가")
 
     with SessionLocal() as db:
         terms = load_terms(db)
         if not terms:
             print("지식베이스가 비어 있음 — scripts.seed_knowledge 먼저 실행")
             return
-        rows = (
+        generated_rows = (
             db.query(GeneratedContent)
             .filter(GeneratedContent.hard_terms.is_(None))
             .filter(GeneratedContent.summary_short.isnot(None))
             .all()
         )
-        for row in rows:
+        for row in generated_rows:
             row.hard_terms = scan_hard_terms(
                 f"{row.summary_short or ''} {row.summary_full or ''}", terms
             )
+        econ_rows = db.query(EconCard).filter(EconCard.hard_terms.is_(None)).all()
+        for row in econ_rows:
+            row.hard_terms = scan_hard_terms(row.body, terms)
         db.commit()
-        print(f"완료: {len(rows)}건 소급 (표제어 {len(terms)}개 기준, LLM 0회)")
+        print(
+            "완료: "
+            f"generated_content {len(generated_rows)}건, "
+            f"econ_card {len(econ_rows)}건 소급 (표제어 {len(terms)}개 기준, LLM 0회)"
+        )
 
 
 if __name__ == "__main__":

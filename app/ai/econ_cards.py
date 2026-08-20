@@ -22,6 +22,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.ai.guardrail import find_absolute_claims, find_any_numbers, find_violations
+from app.ai.hard_terms import load_terms, scan_hard_terms
 from app.ai.llm_client import LLMError, OpenAIClient, get_llm_client
 from app.ai.prompts import ECON_CARD_SCHEMA, ECON_CARD_SYSTEM, ECON_CARD_USER_TMPL
 from app.models import EconCard, EconRotation
@@ -131,10 +132,12 @@ def generate_one(db: Session, client: OpenAIClient, batch_id: str) -> EconCard |
         return None
 
     reasons = auto_filter(data)
+    body = data.get("body") or ""
     card = EconCard(
         title=(data.get("title") or "")[:80],
-        body=data.get("body") or "",
+        body=body,
         sources=data.get("sources") or [],
+        hard_terms=scan_hard_terms(body, load_terms(db)),
         batch_id=batch_id,
         status="rejected" if reasons else "filtered",
         reject_reason="; ".join(reasons) if reasons else None,
