@@ -22,6 +22,7 @@ def _build_snapshot(db: Session, item: SourceItem, stock: StockMaster) -> dict:
         "title": card["title"],
         "summary_short": card["summary_short"],
         "summary_full": card["summary_full"],
+        "hard_terms": card["hard_terms"],  # #77 — 저장 카드에서도 탭 풀이
         "label": card["label"],
         "label_reason": card["label_reason"],
         "source_name": card["source_name"],

@@ -23,6 +23,8 @@ class Card(BaseModel):
     title: str  # 원문 제목 그대로 (영문도 미번역, F-5.1.2)
     summary_short: str | None = None
     summary_full: str | None = None
+    # #77 — 요약 속 어려운 단어(지식베이스 표제어). 프론트가 하이라이트, 탭 → /terms/explain
+    hard_terms: list[str] | None = None
     source_name: str
     published_at: datetime | None = None
     origin_url: str | None = None  # 항상 담되 노출은 시트에서만 (F-6.6 확정)

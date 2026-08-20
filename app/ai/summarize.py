@@ -12,6 +12,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.ai.guardrail import find_unsourced_numbers, find_violations
+from app.ai.hard_terms import load_terms, scan_hard_terms
 from app.ai.llm_client import OpenAIClient
 from app.ai.prompts import (
     LABEL_GUIDE,
@@ -141,6 +142,7 @@ def generate_summaries(
             .all()
         )
     stats = {"generated": 0, "skipped": 0, "locked": 0, "emptied": 0, "dropped": 0, "failed": 0}
+    kb_terms = load_terms(db)  # #77 — 어려운 단어 스캔용 표제어 (배치당 1회 로드)
 
     for item in items:
         if item.tab not in TARGET_TABS:
@@ -206,6 +208,10 @@ def generate_summaries(
                 existing.summary_full = out.get("summary_full")
                 existing.label = out.get("label") if with_label else None
                 existing.label_reason = out.get("label_reason") if with_label else None
+                # #77 — 요약 속 지식베이스 표제어를 함께 저장 (짧은+긴 요약 합산, LLM 아님)
+                existing.hard_terms = scan_hard_terms(
+                    f"{existing.summary_short or ''} {existing.summary_full or ''}", kb_terms
+                )
                 db.commit()
                 if existing.summary_short is None:
                     stats["emptied"] += 1
