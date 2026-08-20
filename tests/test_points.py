@@ -185,3 +185,46 @@ def test_charge_rejects_non_test_key(client, login_env, monkeypatch):
         "/me/points/charge", json={"order_id": "guard-1", "payment_key": "k1", "amount": 5000}
     )
     assert (r.status_code, r.json()["code"]) == (500, "payment_not_configured")
+
+
+# ── 이슈 #83 — 테스트 경로(order_id·payment_key 생략) ──────────────────────
+
+
+def test_charge_test_path_skips_toss(client, login_env, monkeypatch):
+    """order_id·payment_key를 둘 다 생략하면 토스 승인 API를 부르지 않고 바로 적립한다."""
+    monkeypatch.setattr(settings, "toss_secret_key", "live_sk_should_not_matter_here")
+    _login(client)
+
+    @respx.mock
+    def _run():
+        route = respx.post("https://api.tosspayments.com/v1/payments/confirm")
+        route.mock(return_value=httpx.Response(200, json={"status": "DONE"}))
+        r = client.post("/me/points/charge", json={"amount": 10000})
+        return r, route.call_count
+
+    r, call_count = _run()
+    assert r.status_code == 200
+    assert r.json() == {"balance": 10000, "charged": 10000}
+    assert call_count == 0  # 토스를 아예 안 불렀다
+    assert client.get("/me/points").json()["balance"] == 10000
+
+
+def test_charge_test_path_still_validates_amount_and_cap(client, login_env):
+    _login(client)
+    bad = client.post("/me/points/charge", json={"amount": 1234})
+    assert (bad.status_code, bad.json()["code"]) == (400, "invalid_amount")
+
+    ok = client.post("/me/points/charge", json={"amount": 30000})
+    assert ok.status_code == 200
+    over = client.post("/me/points/charge", json={"amount": 5000})
+    assert (over.status_code, over.json()["code"]) == (400, "point_cap_exceeded")
+
+
+def test_charge_partial_test_fields_rejected(client, login_env):
+    """order_id만 있고 payment_key가 없는 등 절반만 보내면 400."""
+    _login(client)
+    r = client.post("/me/points/charge", json={"order_id": "o1", "amount": 5000})
+    assert (r.status_code, r.json()["code"]) == (400, "invalid_request")
+
+    r2 = client.post("/me/points/charge", json={"payment_key": "k1", "amount": 5000})
+    assert (r2.status_code, r2.json()["code"]) == (400, "invalid_request")

@@ -15,8 +15,9 @@ class PointBalanceResponse(BaseModel):
 
 
 class PointChargeRequest(BaseModel):
-    order_id: str
-    payment_key: str
+    # 이슈 #83 — 실결제 없이 테스트하려면 둘 다 생략(amount만 전송). 하나만 보내면 400
+    order_id: str | None = None
+    payment_key: str | None = None
     amount: int  # 5,000 / 10,000 / 30,000 중 하나 (C-8.2)
 
 
